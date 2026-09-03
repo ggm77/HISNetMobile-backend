@@ -2,21 +2,17 @@ package com.seohamin.hisnetmobile.global.infra.hisnet;
 
 import com.seohamin.hisnetmobile.global.exception.CustomException;
 import com.seohamin.hisnetmobile.global.exception.constants.ExceptionCode;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.client.ClientHttpRequestFactory;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
-import jakarta.annotation.PostConstruct;
-
-import java.net.http.HttpClient;
 import java.nio.charset.Charset;
-import java.time.Duration;
 
 /**
  * 원본(HISNet) 서버로 조회 요청을 대신 보내는 HTTP 클라이언트.
@@ -26,6 +22,7 @@ import java.time.Duration;
  * - 세션 만료 시 원본이 HTTP 200 + 소형 JS alert 스텁을 주므로 본문 기반으로 만료를 판별해 예외로 전환
  */
 @Component
+@RequiredArgsConstructor
 @Slf4j
 public class HisnetClient {
 
@@ -38,24 +35,14 @@ public class HisnetClient {
     // 미인증/만료 스텁에 포함되는 안내 문구
     private static final String LOGIN_REQUIRED_MARKER = "로그인 후 이용";
 
-    @Value("${hisnet.base-url}")
+    // 세션 생존 확인용으로 때리는 가벼운 인증 필요 페이지 (일반공지 목록 1페이지)
+    private static final String SESSION_PROBE_PATH =
+            "/myboard/list.php?Board=NB0001&Page=1&FindIt=&FindText=";
+
+    @Value("${hisnet.base-url:https://hisnet.handong.edu}")
     private String baseUrl;
 
-    @Value("${hisnet.connect-timeout-second:5}")
-    private int connectTimeoutSecond;
-
-    @Value("${hisnet.read-timeout-second:10}")
-    private int readTimeoutSecond;
-
-    private RestClient restClient;
-
-    @PostConstruct
-    private void init() {
-        this.restClient = RestClient.builder()
-                .baseUrl(baseUrl)
-                .requestFactory(buildRequestFactory())
-                .build();
-    }
+    private final RestClient hisnetRestClient;
 
     /**
      * 원본 서버의 조회 페이지를 GET 으로 가져와 EUC-KR 로 디코딩한 Document 를 반환하는 메서드.
@@ -68,14 +55,20 @@ public class HisnetClient {
             final HisnetSession session
     ) {
         final byte[] body = request(path, session);
-        final Document document = Jsoup.parse(
-                new String(body, HISNET_CHARSET),
-                baseUrl
-        );
+        final Document document = Jsoup.parse(new String(body, HISNET_CHARSET), baseUrl);
 
         verifyAuthenticated(body, document);
 
         return document;
+    }
+
+    /**
+     * 매핑된 세션이 아직 원본에서 인증 상태인지 확인하는 메서드.
+     * 스텁 응답이면 {@link ExceptionCode#SESSION_EXPIRED} 를 던진다.
+     * @param session 확인할 세션 쿠키
+     */
+    public void verifySession(final HisnetSession session) {
+        get(SESSION_PROBE_PATH, session);
     }
 
     /**
@@ -88,20 +81,36 @@ public class HisnetClient {
             final String path,
             final HisnetSession session
     ) {
+        if (session == null || session.phpSessionId() == null || session.phpSessionId().isBlank()) {
+            throw new CustomException(ExceptionCode.SESSION_EXPIRED);
+        }
+
         try {
-            final byte[] body = restClient.get()
+            return hisnetRestClient.get()
                     .uri(path)
-                    .header("Cookie", buildCookieHeader(session))
-                    .retrieve()
-                    .body(byte[].class);
+                    .header(HttpHeaders.COOKIE, session.toCookieHeader())
+                    .exchange((clientRequest, clientResponse) -> {
+                        final HttpStatusCode status = clientResponse.getStatusCode();
 
-            if (body == null || body.length == 0) {
-                log.warn("[HISNet 빈 응답] path={}", path);
-                throw new CustomException(ExceptionCode.HISNET_REQUEST_FAILED);
-            }
+                        // 세션이 없으면 원본이 로그인 프레임으로 리다이렉트한다
+                        if (status.is3xxRedirection()) {
+                            throw new CustomException(ExceptionCode.SESSION_EXPIRED);
+                        }
+                        if (!status.is2xxSuccessful()) {
+                            log.warn("[HISNet 비정상 응답] path={}, status={}", path, status.value());
+                            throw new CustomException(ExceptionCode.HISNET_REQUEST_FAILED);
+                        }
 
-            return body;
-        } catch (final RestClientException ex) {
+                        final byte[] body = clientResponse.bodyTo(byte[].class);
+                        if (body == null || body.length == 0) {
+                            throw new CustomException(ExceptionCode.HISNET_REQUEST_FAILED);
+                        }
+
+                        return body;
+                    });
+        } catch (final CustomException ex) {
+            throw ex;
+        } catch (final Exception ex) {
             log.error("[HISNet 요청 실패] path={}", path, ex);
             throw new CustomException(ExceptionCode.HISNET_REQUEST_FAILED, ex);
         }
@@ -123,36 +132,5 @@ public class HisnetClient {
         if (document.text().contains(LOGIN_REQUIRED_MARKER)) {
             throw new CustomException(ExceptionCode.SESSION_EXPIRED);
         }
-    }
-
-    /**
-     * PHPSESSID 와 (있으면) cookie_id 를 Cookie 헤더 문자열로 조립하는 메서드.
-     * @param session 세션 쿠키
-     * @return Cookie 헤더 값
-     */
-    private String buildCookieHeader(final HisnetSession session) {
-        if (session == null || session.phpSessionId() == null || session.phpSessionId().isBlank()) {
-            throw new CustomException(ExceptionCode.SESSION_EXPIRED);
-        }
-
-        final StringBuilder cookie = new StringBuilder("PHPSESSID=").append(session.phpSessionId());
-        if (session.cookieId() != null && !session.cookieId().isBlank()) {
-            cookie.append("; cookie_id=").append(session.cookieId());
-        }
-
-        return cookie.toString();
-    }
-
-    private ClientHttpRequestFactory buildRequestFactory() {
-        final HttpClient httpClient = HttpClient.newBuilder()
-                // 원본 사이트의 HTTPS→HTTP 다운그레이드 리다이렉트를 따라가지 않도록 수동 처리
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .connectTimeout(Duration.ofSeconds(connectTimeoutSecond))
-                .build();
-
-        final JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
-        requestFactory.setReadTimeout(Duration.ofSeconds(readTimeoutSecond));
-
-        return requestFactory;
     }
 }

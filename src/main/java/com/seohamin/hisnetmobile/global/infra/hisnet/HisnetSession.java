@@ -8,4 +8,18 @@ package com.seohamin.hisnetmobile.global.infra.hisnet;
 public record HisnetSession(
         String phpSessionId,
         String cookieId
-) { }
+) {
+
+    /**
+     * PHPSESSID 와 (있으면) cookie_id 를 Cookie 헤더 값으로 조립하는 메서드.
+     * @return Cookie 헤더에 그대로 넣을 문자열
+     */
+    public String toCookieHeader() {
+        final StringBuilder cookie = new StringBuilder("PHPSESSID=").append(phpSessionId);
+        if (cookieId != null && !cookieId.isBlank()) {
+            cookie.append("; cookie_id=").append(cookieId);
+        }
+
+        return cookie.toString();
+    }
+}
