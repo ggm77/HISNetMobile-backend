@@ -20,6 +20,7 @@ public enum ExceptionCode {
     HISNET_REQUEST_FAILED(HttpStatus.BAD_GATEWAY, "히즈넷 서버 요청에 실패했습니다."),
 
     NOTICE_PARSING_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "공지 페이지 파싱에 실패했습니다."),
+    STUDENT_INFO_PARSING_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "학적 정보 페이지 파싱에 실패했습니다."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버에서 에러가 발생했습니다.")
     ;
 
