@@ -12,9 +12,12 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -41,16 +44,29 @@ public class NoticeParser {
     private static final Pattern DATE_PATTERN = Pattern.compile("(\\d{2,4})[.\\-/](\\d{1,2})[.\\-/](\\d{1,2})");
     private static final Pattern DIGITS_ONLY = Pattern.compile("^\\d+$");
 
-    // 본문 상세 페이지의 라벨 셀 텍스트
-    private static final List<String> SUBJECT_LABELS = List.of("제목");
-    private static final List<String> WRITER_LABELS = List.of("작성자", "이름", "글쓴이");
-    private static final List<String> READ_COUNT_LABELS = List.of("조회", "조회수");
+    // read.php 상세: 헤더 메타는 div.readText 안의 라벨/값 span 묶음, 본문은 td.readText.BoardContent
+    private static final String DETAIL_HEADER_SELECTOR = "div.readText.cls_Padding10";
+    private static final String DETAIL_BODY_SELECTOR = "td.readText.BoardContent, .BoardContent";
+    // 제목 블록 맨 앞에 붙는 "175753." 같은 글 ID 토큰
+    private static final Pattern LEADING_ID_TOKEN = Pattern.compile("^\\d+\\.?$");
+    // 첨부 링크 텍스트 끝의 " (1,321,448 bytes)" 꼬리
+    private static final Pattern ATTACHMENT_SIZE_SUFFIX =
+            Pattern.compile("\\s*\\([\\d,]+\\s*bytes\\)\\s*$", Pattern.CASE_INSENSITIVE);
+
+    // 본문 상세 페이지의 라벨 텍스트 (원본이 영문 라벨 Date/Writer/Read/Category 를 쓴다. 구 레이아웃용 국문도 함께)
+    private static final List<String> SUBJECT_LABELS = List.of("제목", "subject");
+    private static final List<String> WRITER_LABELS = List.of("작성자", "이름", "글쓴이", "writer");
+    private static final List<String> READ_COUNT_LABELS = List.of("조회", "조회수", "read");
     private static final List<String> DATE_LABELS = List.of("date", "작성일", "등록일", "날짜");
-    private static final List<String> CATEGORY_LABELS = List.of("분류", "구분");
+    private static final List<String> CATEGORY_LABELS = List.of("분류", "구분", "category");
 
     // 첨부파일 다운로드로 볼 수 있는 링크 패턴
     private static final Pattern ATTACHMENT_HREF_PATTERN =
             Pattern.compile("(download|filedown|file_down|down\\.php|getfile|attach)", Pattern.CASE_INSENSITIVE);
+
+    // read.php 하단에는 게시판 목록(tr.tr_basic)이 통째로 붙는다. 그 목록 행의 첨부 링크는 제외한다.
+    // (기사 본문의 첨부 셀도 td.listBody 를 쓰므로 tr.tr_basic 으로만 걸러야 한다)
+    private static final String DETAIL_LIST_ROW_SELECTOR = "tr.tr_basic";
 
     /**
      * 목록 페이지(list.php)를 파싱해 공지 요약 리스트로 변환하는 메서드.
@@ -63,15 +79,15 @@ public class NoticeParser {
         // 1) 같은 행에 링크가 여러 개(제목/댓글 등)일 수 있어 글 ID 기준으로 행을 1개로 모은다
         final Map<String, Element> rowById = new LinkedHashMap<>();
         for (final Element link : document.select(READ_LINK_SELECTOR)) {
-            final String noticeNo = extractNoticeNo(link.attr("href"));
-            if (noticeNo == null) {
+            final String noticeId = extractNoticeId(link.attr("href"));
+            if (noticeId == null) {
                 continue;
             }
             final Element row = link.closest("tr");
             if (row == null) {
                 continue;
             }
-            rowById.putIfAbsent(noticeNo, row);
+            rowById.putIfAbsent(noticeId, row);
         }
 
         // 2) 목록 링크가 하나도 없으면 구조가 바뀌었거나 잘못된 페이지 → 파싱 실패로 처리
@@ -110,35 +126,46 @@ public class NoticeParser {
 
     /**
      * 본문 페이지(read.php)를 파싱해 공지 상세로 변환하는 메서드.
+     * <p>
+     * 현재 read.php 구조: 헤더 메타는 {@code div.readText} 안에 "라벨 span → 값 span" 이 이어지고
+     * (라벨은 영문 Date/Writer/Read/Category, 카테고리는 라벨·값이 중첩 span 으로 붙기도 함),
+     * 제목은 첫 헤더 블록에서 "글 ID." 토큰을 뺀 나머지, 본문은 {@code td.readText.BoardContent} 다.
+     * 구조가 다른 게시판/구버전을 대비해 실패 시 라벨 셀(th/td) 방식으로 폴백한다.
      * @param document EUC-KR 로 디코딩된 본문 페이지
-     * @param noticeNo 요청한 글 ID (응답에 그대로 실어준다)
+     * @param noticeId 요청한 글 ID (응답에 그대로 실어준다)
      * @return 공지 상세
      */
     public NoticeResponseDto parseDetail(
             final Document document,
-            final String noticeNo
+            final String noticeId
     ) {
 
-        // 1) 라벨 셀("제목/작성자/조회/Date")을 앵커로 값 셀을 지목
-        final String subject = findValueByLabel(document, SUBJECT_LABELS);
-        if (subject == null || subject.isBlank()) {
-            log.warn("[공지 본문 파싱 실패] 제목 셀을 찾지 못함 noticeNo={}", noticeNo);
+        // 1) 헤더 span 묶음에서 메타 추출
+        final Map<String, String> header = parseDetailHeader(document);
+
+        // 2) 제목: 헤더 첫 블록 → 폴백으로 라벨 셀
+        String subject = extractDetailSubject(document);
+        if (isBlank(subject)) {
+            subject = findValueByLabel(document, SUBJECT_LABELS);
+        }
+        if (isBlank(subject)) {
+            log.warn("[공지 본문 파싱 실패] 제목을 찾지 못함 noticeId={}", noticeId);
             throw new CustomException(ExceptionCode.NOTICE_PARSING_FAILED);
         }
 
-        final String writer = findValueByLabel(document, WRITER_LABELS);
-        final Integer read = parseIntOrNull(findValueByLabel(document, READ_COUNT_LABELS));
-        final LocalDate time = parseDate(findValueByLabel(document, DATE_LABELS));
-        final String category = findValueByLabel(document, CATEGORY_LABELS);
+        final String writer = firstNonBlank(header.get("writer"), findValueByLabel(document, WRITER_LABELS));
+        final Integer read = parseIntOrNull(firstNonBlank(header.get("read"), findValueByLabel(document, READ_COUNT_LABELS)));
+        final LocalDate time = parseDate(firstNonBlank(header.get("date"), findValueByLabel(document, DATE_LABELS)));
+        final String category = firstNonBlank(header.get("category"), findValueByLabel(document, CATEGORY_LABELS));
 
-        // 2) 본문 컨테이너는 표 레이아웃에서 colspan 이 걸린 가장 텍스트가 긴 셀
+        // 3) 본문
         final String body = extractBody(document);
 
-        // 3) 첨부파일 링크 이름 수집 (바이너리 릴레이는 2차 범위, 지금은 이름만)
+        // 4) 첨부파일 이름 (하단 게시판 목록의 첨부 링크는 제외)
         final List<String> files = extractAttachmentNames(document);
 
         return new NoticeResponseDto(
-                noticeNo,
+                noticeId,
                 subject,
                 files,
                 writer,
@@ -150,11 +177,88 @@ public class NoticeParser {
     }
 
     /**
+     * read.php 헤더의 {@code div.readText} 블록들을 훑어 "라벨 → 값" 맵을 만드는 메서드.
+     * 라벨과 값이 이웃한 leaf span 으로 나온다. 중첩 span 이 있으면 부모는 건너뛰고 자식만 본다.
+     */
+    private Map<String, String> parseDetailHeader(final Document document) {
+
+        final List<String> tokens = new ArrayList<>();
+        for (final Element block : document.select(DETAIL_HEADER_SELECTOR)) {
+            for (final Element span : block.select("span")) {
+                if (!span.select("span").isEmpty()) {
+                    continue;
+                }
+                final String text = span.text().trim();
+                if (!text.isEmpty()) {
+                    tokens.add(text);
+                }
+            }
+        }
+
+        final Map<String, String> header = new LinkedHashMap<>();
+        for (int i = 0; i + 1 < tokens.size(); i++) {
+            final String key = canonicalDetailLabel(tokens.get(i));
+            if (key != null) {
+                header.putIfAbsent(key, tokens.get(i + 1).trim());
+            }
+        }
+
+        return header;
+    }
+
+    /**
+     * 헤더 라벨 텍스트를 표준 키(writer/read/date/category)로 바꾸는 메서드.
+     * @return 알려진 라벨이 아니면 null
+     */
+    private String canonicalDetailLabel(final String raw) {
+        final String normalized = raw.replace(":", "").replace(" ", "").trim().toLowerCase(Locale.ROOT);
+
+        if (WRITER_LABELS.contains(normalized)) {
+            return "writer";
+        }
+        if (READ_COUNT_LABELS.contains(normalized)) {
+            return "read";
+        }
+        if (DATE_LABELS.contains(normalized)) {
+            return "date";
+        }
+        if (CATEGORY_LABELS.contains(normalized)) {
+            return "category";
+        }
+
+        return null;
+    }
+
+    /**
+     * 제목을 뽑는 메서드. 첫 헤더 블록의 leaf span 중 "글 ID." 토큰을 뺀 나머지를 이어붙인다.
+     */
+    private String extractDetailSubject(final Document document) {
+        final Element firstBlock = document.selectFirst(DETAIL_HEADER_SELECTOR);
+        if (firstBlock == null) {
+            return null;
+        }
+
+        final List<String> parts = new ArrayList<>();
+        for (final Element span : firstBlock.select("span")) {
+            if (!span.select("span").isEmpty()) {
+                continue;
+            }
+            final String text = span.text().trim();
+            if (text.isEmpty() || LEADING_ID_TOKEN.matcher(text).matches()) {
+                continue;
+            }
+            parts.add(text);
+        }
+
+        return parts.isEmpty() ? null : String.join(" ", parts);
+    }
+
+    /**
      * 목록 행 하나를 요약 DTO 로 변환하는 메서드.
      * 셀 순서(번호/제목/첨부/작성자/날짜/조회)가 게시판마다 미묘하게 다를 수 있어 값의 형태로 역추론한다.
      */
     private SimpleNoticeResponseDto toSimpleNotice(
-            final String noticeNo,
+            final String noticeId,
             final Element row
     ) {
         final Elements cells = row.select("td");
@@ -195,7 +299,7 @@ public class NoticeParser {
         }
 
         return new SimpleNoticeResponseDto(
-                noticeNo,
+                noticeId,
                 subject,
                 countAttachments(row),
                 writer,
@@ -221,7 +325,7 @@ public class NoticeParser {
     /**
      * href 쿼리스트링에서 글 ID(id 파라미터)를 뽑아내는 메서드.
      */
-    private String extractNoticeNo(final String href) {
+    private String extractNoticeId(final String href) {
         if (href == null) {
             return null;
         }
@@ -268,10 +372,18 @@ public class NoticeParser {
     }
 
     /**
-     * 본문 컨테이너 셀을 지목하는 메서드.
-     * 표 레이아웃(테이블 20여 개)에서 본문은 colspan 이 걸린 셀 중 텍스트가 가장 긴 셀이다.
+     * 본문을 뽑는 메서드. {@code td.readText.BoardContent} 를 우선 보고,
+     * 없으면 표 레이아웃에서 colspan 이 걸린 가장 긴 셀로 폴백한다.
      */
     private String extractBody(final Document document) {
+        final Element boardContent = document.selectFirst(DETAIL_BODY_SELECTOR);
+        if (boardContent != null) {
+            final String text = boardContent.wholeText().trim();
+            if (!text.isEmpty()) {
+                return text;
+            }
+        }
+
         return document.select("td[colspan]").stream()
                 .max((a, b) -> Integer.compare(a.text().length(), b.text().length()))
                 .map(Element::wholeText)
@@ -282,20 +394,64 @@ public class NoticeParser {
 
     /**
      * 첨부파일 링크의 표시 이름을 수집하는 메서드.
+     * read.php 하단에 붙는 게시판 목록의 첨부 링크는 제외하기 위해 "기사 영역"으로 범위를 좁힌다.
+     * 링크 텍스트가 파일명이며, 끝의 "(12,345 bytes)" 꼬리는 떼고 숫자만인 텍스트는 버린다.
      */
     private List<String> extractAttachmentNames(final Document document) {
+        final Element articleScope = detailArticleScope(document);
+        final Element searchRoot = articleScope != null ? articleScope : document;
+
         final List<String> names = new ArrayList<>();
-        for (final Element link : document.select("a[href]")) {
+        for (final Element link : searchRoot.select("a[href]")) {
             if (!ATTACHMENT_HREF_PATTERN.matcher(link.attr("href")).find()) {
                 continue;
             }
-            final String name = link.text().trim();
-            if (!name.isEmpty() && !names.contains(name)) {
+            if (!link.parents().select(DETAIL_LIST_ROW_SELECTOR).isEmpty()) {
+                continue;
+            }
+
+            final String name = ATTACHMENT_SIZE_SUFFIX.matcher(link.text().trim()).replaceAll("").trim();
+            if (name.isEmpty() || DIGITS_ONLY.matcher(name).matches()) {
+                continue;
+            }
+            if (!names.contains(name)) {
                 names.add(name);
             }
         }
 
         return names;
+    }
+
+    /**
+     * 상세 페이지에서 "기사 영역"(하단 게시판 목록 제외)을 좁히는 메서드.
+     * 헤더 span 묶음과 본문 셀의 최소 공통 조상을 쓴다. 구조가 다르면 null.
+     */
+    private Element detailArticleScope(final Document document) {
+        final Element header = document.selectFirst(DETAIL_HEADER_SELECTOR);
+        final Element body = document.selectFirst(DETAIL_BODY_SELECTOR);
+        if (header == null || body == null) {
+            return null;
+        }
+
+        final Set<Element> headerAncestors = new HashSet<>(header.parents());
+        for (final Element ancestor : body.parents()) {
+            if (headerAncestors.contains(ancestor)) {
+                return ancestor;
+            }
+        }
+
+        return null;
+    }
+
+    private boolean isBlank(final String value) {
+        return value == null || value.isBlank();
+    }
+
+    private String firstNonBlank(final String primary, final String fallback) {
+        if (!isBlank(primary)) {
+            return primary;
+        }
+        return isBlank(fallback) ? null : fallback;
     }
 
     /**

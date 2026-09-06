@@ -33,7 +33,7 @@ public class NoticeService {
     private static final int FIRST_PAGE = 1;
 
     // 글 ID 는 원본이 숫자 ID 를 쓰므로 숫자만 허용
-    private static final Pattern NOTICE_NO_PATTERN = Pattern.compile("^\\d+$");
+    private static final Pattern NOTICE_ID_PATTERN = Pattern.compile("^\\d+$");
 
     private final HisnetClient hisnetClient;
     private final NoticeParser noticeParser;
@@ -55,15 +55,15 @@ public class NoticeService {
     /**
      * 특정 일반공지 본문을 조회하는 메서드.
      * @param userDetails 인증 주체 (원본 세션 보유)
-     * @param noticeNo 글 ID
+     * @param noticeId 글 ID
      * @return 공지 상세
      */
     public NoticeResponseDto getGeneralNotice(
             final UserDetails userDetails,
-            final String noticeNo
+            final String noticeId
     ) {
 
-        return getNotice(userDetails, Board.GENERAL, noticeNo);
+        return getNotice(userDetails, Board.GENERAL, noticeId);
     }
 
     /**
@@ -86,16 +86,16 @@ public class NoticeService {
      * 특정 학부 게시판의 공지 본문을 조회하는 메서드.
      * @param userDetails 인증 주체 (원본 세션 보유)
      * @param departmentId 학부 게시판 코드
-     * @param noticeNo 글 ID
+     * @param noticeId 글 ID
      * @return 공지 상세
      */
     public NoticeResponseDto getDepartmentNotice(
             final UserDetails userDetails,
             final String departmentId,
-            final String noticeNo
+            final String noticeId
     ) {
 
-        return getNotice(userDetails, Board.department(departmentId), noticeNo);
+        return getNotice(userDetails, Board.department(departmentId), noticeId);
     }
 
     /**
@@ -143,22 +143,22 @@ public class NoticeService {
     private NoticeResponseDto getNotice(
             final UserDetails userDetails,
             final String boardCode,
-            final String noticeNo
+            final String noticeId
     ) {
 
         // 1) 글 ID 형식 검증
-        if (noticeNo == null || !NOTICE_NO_PATTERN.matcher(noticeNo).matches()) {
-            throw new CustomException(ExceptionCode.INVALID_NOTICE_NO);
+        if (noticeId == null || !NOTICE_ID_PATTERN.matcher(noticeId).matches()) {
+            throw new CustomException(ExceptionCode.INVALID_NOTICE_ID);
         }
 
         // 2) 인증 주체에서 원본 세션(PHPSESSID) 추출
         final HisnetSession session = resolveSession(userDetails);
 
         // 3) 본문 페이지 GET 릴레이 (EUC-KR → Document)
-        final Document document = hisnetClient.get(readPath(boardCode, noticeNo), session);
+        final Document document = hisnetClient.get(readPath(boardCode, noticeId), session);
 
         // 4) 파싱해서 상세로 응답
-        return noticeParser.parseDetail(document, noticeNo);
+        return noticeParser.parseDetail(document, noticeId);
     }
 
     /**
@@ -193,9 +193,9 @@ public class NoticeService {
      */
     private String readPath(
             final String boardCode,
-            final String noticeNo
+            final String noticeId
     ) {
-        return "/myboard/read.php?id=" + encode(noticeNo)
+        return "/myboard/read.php?id=" + encode(noticeId)
                 + "&Board=" + encode(boardCode)
                 + "&Page=" + FIRST_PAGE;
     }

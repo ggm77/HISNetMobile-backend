@@ -343,11 +343,11 @@
 
   function renderList(data) {
     const notices = data.notices || [];
-    const head = "<tr><th>고정</th><th>No</th><th>제목</th><th>작성자</th><th>날짜</th><th>조회</th><th>첨부</th></tr>";
+    const head = "<tr><th>고정</th><th>ID</th><th>제목</th><th>작성자</th><th>날짜</th><th>조회</th><th>첨부</th></tr>";
     const rows = notices.map(function (n) {
-      return "<tr class='clickable' data-id='" + esc(n.no) + "'>"
+      return "<tr class='clickable' data-id='" + esc(n.id) + "'>"
         + "<td class='center'>" + (n.pinned ? "<span class='badge'>고정</span>" : "") + "</td>"
-        + "<td class='num'>" + cell(n.no) + "</td>"
+        + "<td class='num'>" + cell(n.id) + "</td>"
         + "<td>" + cell(n.subject) + "</td>"
         + "<td class='center'>" + cell(n.writer) + "</td>"
         + "<td class='center'>" + cell(n.time) + "</td>"
@@ -385,7 +385,7 @@
       }
       const d = r.body || {};
       renderKv($("detailTable"), [
-        ["No", d.no], ["제목", d.subject], ["작성자", d.writer], ["날짜", d.time],
+        ["ID", d.id], ["제목", d.subject], ["작성자", d.writer], ["날짜", d.time],
         ["조회", d.read], ["분류", d.category],
         ["첨부", (d.files && d.files.length) ? d.files.join(", ") : null]
       ]);

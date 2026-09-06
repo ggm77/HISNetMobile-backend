@@ -9,7 +9,7 @@ import org.springframework.http.HttpStatus;
 public enum ExceptionCode {
 
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "필요한 값이 비어있습니다."),
-    INVALID_NOTICE_NO(HttpStatus.BAD_REQUEST, "올바르지 않은 공지 번호입니다."),
+    INVALID_NOTICE_ID(HttpStatus.BAD_REQUEST, "올바르지 않은 공지 ID입니다."),
     INVALID_DEPARTMENT(HttpStatus.BAD_REQUEST, "올바르지 않은 학부 게시판 코드입니다."),
 
     LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "로그인에 실패했습니다. 아이디와 비밀번호를 확인해주세요."),
