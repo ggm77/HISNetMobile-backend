@@ -244,11 +244,15 @@ public class NoticeParser {
 
     /**
      * span 목록에서 leaf(자식 span 없는) span 의 텍스트만 순서대로 뽑는 메서드.
+     * <p>
+     * 주의: jsoup 의 {@code Element.select("span")} 는 자기 자신도 매칭에 포함하므로
+     * (span 이 span 을 select 하면 항상 결과에 자기 자신이 들어간다) 반드시
+     * {@code children().select(...)} 로 자식 범위만 검사해야 한다.
      */
     private List<String> leafSpanTokens(final Elements spans) {
         final List<String> tokens = new ArrayList<>();
         for (final Element span : spans) {
-            if (!span.select("span").isEmpty()) {
+            if (!span.children().select("span").isEmpty()) {
                 continue;
             }
             final String text = span.text().trim();
@@ -466,7 +470,9 @@ public class NoticeParser {
             if (!ATTACHMENT_HREF_PATTERN.matcher(link.attr("href")).find()) {
                 continue;
             }
-            if (!link.parents().select(DETAIL_LIST_ROW_SELECTOR).isEmpty()) {
+            // 하단 게시판 목록(tr.tr_basic) 안의 링크면 제외.
+            // (link.parents().select(..) 는 "조상이 그런 요소를 포함" 도 매칭하므로 closest 로 조상 자체만 검사)
+            if (link.closest(DETAIL_LIST_ROW_SELECTOR) != null) {
                 continue;
             }
 
