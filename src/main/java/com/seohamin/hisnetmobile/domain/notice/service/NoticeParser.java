@@ -183,10 +183,27 @@ public class NoticeParser {
      */
     private String describeDocument(final Document document) {
         final String text = document.body() != null ? document.body().text() : document.text();
-        final String head = text.length() > 300 ? text.substring(0, 300) : text;
+        final String head = text.length() > 200 ? text.substring(0, 200) : text;
+
+        final Element firstBlock = document.selectFirst("div.readText");
+        final String blockDump;
+        if (firstBlock == null) {
+            blockDump = "firstReadText=null";
+        } else {
+            final StringBuilder spanTexts = new StringBuilder();
+            for (final Element span : firstBlock.select("span")) {
+                spanTexts.append("<").append(span.text().trim()).append(">");
+            }
+            String outer = firstBlock.outerHtml().replaceAll("\\s+", " ");
+            if (outer.length() > 500) {
+                outer = outer.substring(0, 500);
+            }
+            blockDump = String.format("firstReadText.spanCount=%d spanTexts=%s outerHtml=[%s]",
+                    firstBlock.select("span").size(), spanTexts, outer);
+        }
 
         return String.format(
-                "htmlLen=%d, title='%s', div.readText=%d, readText.cls_Padding10=%d, span=%d, BoardContent=%d, td=%d, bodyTextHead='%s'",
+                "htmlLen=%d, title='%s', div.readText=%d, readText.cls_Padding10=%d, span=%d, BoardContent=%d, td=%d, %s, bodyTextHead='%s'",
                 document.outerHtml().length(),
                 document.title(),
                 document.select("div.readText").size(),
@@ -194,6 +211,7 @@ public class NoticeParser {
                 document.select("span").size(),
                 document.select(DETAIL_BODY_SELECTOR).size(),
                 document.select("td").size(),
+                blockDump,
                 head.replaceAll("\\s+", " ")
         );
     }
@@ -205,9 +223,12 @@ public class NoticeParser {
      */
     private Map<String, String> parseDetailHeader(final Document document) {
 
-        List<String> tokens = leafSpanTokens(document.select(DETAIL_HEADER_SELECTOR));
+        final List<String> tokens = new ArrayList<>();
+        for (final Element block : document.select(DETAIL_HEADER_SELECTOR)) {
+            tokens.addAll(leafSpanTokens(block.select("span")));
+        }
         if (tokens.isEmpty()) {
-            tokens = leafSpanTokens(document.select("span"));
+            tokens.addAll(leafSpanTokens(document.select("span")));
         }
 
         final Map<String, String> header = new LinkedHashMap<>();
