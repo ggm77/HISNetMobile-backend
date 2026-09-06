@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HisnetMobile API 테스트</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #fff; --border: #d9dce1; --text: #1f2328;
+    --muted: #656d76; --accent: #2f6fed; --accent-press: #2559c9;
+    --ok: #1a7f37; --err: #cf222e; --code-bg: #f6f8fa; --pin: #bc4c00;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 80px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  label { display: block; font-size: 13px; margin: 10px 0 4px; font-weight: 600; }
+  input[type=text], input[type=password], input[type=number], select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 6px; font-size: 14px; background: #fff; color: var(--text);
+  }
+  .inline { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+  .inline > div { flex: 1 1 160px; }
+  .inline > div.narrow { flex: 0 0 110px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  button {
+    appearance: none; border: 1px solid var(--border); background: #fff; color: var(--text);
+    padding: 8px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  button:hover { background: #f0f2f5; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: var(--accent-press); }
+  button:disabled { opacity: .5; cursor: default; }
+  .status { font-size: 13px; margin-top: 12px; min-height: 18px; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--err); }
+  table.kv { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.kv th, table.kv td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.kv th { width: 130px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+  .empty { color: var(--muted); }
+  table.list { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+  table.list th, table.list td { padding: 7px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+  table.list th { color: var(--muted); font-weight: 600; background: var(--code-bg); position: sticky; top: 0; }
+  table.list tbody tr:hover, table.list tr.clickable:hover { background: #eef3ff; cursor: pointer; }
+  table.list td.num, table.list td.center { text-align: center; white-space: nowrap; color: var(--muted); }
+  .badge { display: inline-block; font-size: 11px; font-weight: 700; color: var(--pin); border: 1px solid var(--pin); border-radius: 4px; padding: 0 4px; }
+  .pager { display: flex; gap: 8px; align-items: center; margin-top: 12px; font-size: 13px; flex-wrap: wrap; }
+  .pager .meta { color: var(--muted); }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow-x: auto; font-size: 12px; margin: 12px 0 0; white-space: pre-wrap; word-break: break-word; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  .cfg { font-size: 12px; color: var(--muted); }
+  .tabbar { display: flex; gap: 4px; margin-bottom: 4px; }
+  .tabbar button { border-radius: 6px 6px 0 0; }
+  .tabbar button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>HisnetMobile API 테스트</h1>
+  <div class="sub">세션 로그인 · 학적 기본정보 · 공지(일반/학부) 목록·상세 확인용</div>
+
+  <div class="card">
+    <h2>1. 로그인</h2>
+    <div class="inline">
+      <div>
+        <label for="username">아이디</label>
+        <input id="username" type="text" autocomplete="username" placeholder="히즈넷 아이디">
+      </div>
+      <div>
+        <label for="password">비밀번호</label>
+        <input id="password" type="password" autocomplete="current-password">
+      </div>
+    </div>
+    <div class="row">
+      <button id="btnLogin" class="primary">로그인</button>
+      <button id="btnMe">로그인 사용자 확인 (/auth/me)</button>
+      <button id="btnLogout">로그아웃</button>
+    </div>
+    <div id="authStatus" class="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>2. 학적 기본정보</h2>
+    <div class="row">
+      <button id="btnStudent" class="primary">GET /api/v1/students/me</button>
+    </div>
+    <div id="studentStatus" class="status"></div>
+    <div id="studentTable" class="scroll"></div>
+    <details id="studentRawWrap" hidden><summary>raw (원본 라벨-값 맵)</summary><div id="studentRawTable" class="scroll"></div></details>
+    <details id="studentJsonWrap" hidden><summary>응답 JSON</summary><pre id="studentJson"></pre></details>
+  </div>
+
+  <div class="card">
+    <h2>3. 공지 조회</h2>
+    <div class="tabbar">
+      <button id="tabGeneral" class="active" data-mode="general">일반공지</button>
+      <button id="tabDept" data-mode="department">학부공지</button>
+    </div>
+
+    <div class="inline" style="margin-top:12px">
+      <div id="deptWrap" hidden>
+        <label for="dept">학부 게시판</label>
+        <select id="dept"></select>
+      </div>
+      <div class="narrow">
+        <label for="page">페이지</label>
+        <input id="page" type="number" min="1" value="1">
+      </div>
+      <div class="narrow" style="flex:0 0 auto">
+        <button id="btnList" class="primary">목록 조회</button>
+      </div>
+    </div>
+
+    <div id="listStatus" class="status"></div>
+
+    <div class="pager" id="pager" hidden>
+      <button id="pagePrev">◀ 이전</button>
+      <button id="pageNext">다음 ▶</button>
+      <span class="meta" id="pageMeta"></span>
+    </div>
+
+    <div class="scroll"><div id="listTable"></div></div>
+    <details id="listJsonWrap" hidden><summary>목록 응답 JSON</summary><pre id="listJson"></pre></details>
+
+    <div id="detailBox" hidden style="margin-top:16px; border-top: 2px solid var(--border); padding-top:12px">
+      <h2 style="text-transform:none; color:var(--text); font-size:14px">공지 상세</h2>
+      <div id="detailStatus" class="status"></div>
+      <div class="scroll"><div id="detailTable"></div></div>
+      <div id="detailBody"></div>
+      <details id="detailJsonWrap" hidden><summary>상세 응답 JSON</summary><pre id="detailJson"></pre></details>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // === HISNet myboard/list.php 좌측 메뉴(cls_menulevel3)에서 확인한 학부 게시판 코드 ===
+  const DEPARTMENTS = [
+    ["B0020", "글로벌리더십학부"],
+    ["B0021", "국제어문학부"],
+    ["B0022", "경영경제학부"],
+    ["B0023", "법학부"],
+    ["B0024", "커뮤니케이션학부"],
+    ["B0102", "상담심리사회복지학부"],
+    ["B0028", "생명과학부"],
+    ["B0025", "공간환경시스템공학부"],
+    ["B0029", "AI컴퓨터전자공학부"],
+    ["B0027", "콘텐츠융합디자인학부"],
+    ["B0026", "기계제어공학부"],
+    ["B0031", "언어교육원"],
+    ["B0427", "창의융합교육원"],
+    ["B0419", "ICT창업학부"],
+    ["B0431", "AI융합교육원"],
+    ["B0434", "AI융합학부(신설)"],
+    ["B0432", "신앙교육원"],
+    ["B0113", "대학원공지"],
+    ["B0114", "대학원양식"],
+    ["B0430", "학과공지"]
+  ];
+
+  const STUDENT_LABELS = {
+    studentNo: "학번", name: "성명", nameEnglish: "영문성명", academicStatus: "학적상태",
+    grade: "학년", nationality: "국적", birthDate: "생년월일", curriculumType: "교육과정 구분",
+    admissionDate: "입학일자", highSchool: "출신학교", graduationDate: "졸업일자",
+    degreeNumber: "학위번호", department: "학부(과)", major: "전공", doubleMajor: "복수전공",
+    minor: "부전공", engineeringCertification: "공학인증", combinedDegree: "학석사연계",
+    practicalComputing: "실무전산여부", rcInfo: "RC정보", mobile: "휴대폰", phone: "전화번호",
+    email: "이메일", address: "주소"
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const base = () => ""; // 동일 오리진 (앱이 이 파일을 서빙)
+
+  let mode = "general";
+  let currentList = null; // 마지막 목록 응답
+
+  function setStatus(el, message, kind) {
+    el.textContent = message;
+    el.className = "status" + (kind ? " " + kind : "");
+  }
+  function busy(disabled) {
+    document.querySelectorAll("button").forEach((b) => { b.disabled = disabled; });
+  }
+  function esc(v) {
+    return String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+  function cell(v) {
+    return (v === null || v === undefined || v === "") ? '<span class="empty">(없음)</span>' : esc(v);
+  }
+
+  async function call(path, options) {
+    const res = await fetch(base() + path, Object.assign({ credentials: "include", headers: {} }, options));
+    const text = await res.text();
+    let body = null;
+    if (text) { try { body = JSON.parse(text); } catch (e) { body = text; } }
+    return { status: res.status, ok: res.ok, body: body };
+  }
+
+  function renderKv(container, entries) {
+    if (!entries.length) { container.innerHTML = ""; return; }
+    container.innerHTML = "<table class='kv'>" + entries.map(function (e) {
+      return "<tr><th>" + esc(e[0]) + "</th><td>" + cell(e[1]) + "</td></tr>";
+    }).join("") + "</table>";
+  }
+
+  // ---------- 학부 select 채우기 ----------
+  $("dept").innerHTML = DEPARTMENTS.map(function (d) {
+    return "<option value='" + d[0] + "'>" + esc(d[1]) + " (" + d[0] + ")</option>";
+  }).join("");
+
+  // ---------- 1. 로그인 ----------
+  $("btnLogin").addEventListener("click", async function () {
+    const username = $("username").value.trim();
+    const password = $("password").value;
+    if (!username || !password) { setStatus($("authStatus"), "아이디와 비밀번호를 입력하세요.", "err"); return; }
+
+    busy(true);
+    setStatus($("authStatus"), "로그인 중...");
+    try {
+      const params = new URLSearchParams();
+      params.set("username", username);
+      params.set("password", password);
+      const r = await call("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString()
+      });
+      if (r.status === 204) setStatus($("authStatus"), "로그인 성공 (204). 세션 쿠키 발급됨.", "ok");
+      else if (r.status === 401) setStatus($("authStatus"), "로그인 실패 (401). 아이디/비밀번호 확인.", "err");
+      else setStatus($("authStatus"), "예상치 못한 응답: " + r.status + " " + JSON.stringify(r.body), "err");
+    } catch (e) {
+      setStatus($("authStatus"), "요청 실패: " + e.message, "err");
+    } finally { busy(false); }
+  });
+
+  $("btnMe").addEventListener("click", async function () {
+    busy(true);
+    setStatus($("authStatus"), "확인 중...");
+    try {
+      const r = await call("/api/v1/auth/me", { method: "GET" });
+      if (r.ok) setStatus($("authStatus"), "로그인 상태 — " + JSON.stringify(r.body), "ok");
+      else setStatus($("authStatus"), "비로그인/만료 (" + r.status + ") — " + JSON.stringify(r.body), "err");
+    } catch (e) { setStatus($("authStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
+  });
+
+  $("btnLogout").addEventListener("click", async function () {
+    busy(true);
+    setStatus($("authStatus"), "로그아웃 중...");
+    try {
+      const r = await call("/api/v1/auth/logout", { method: "POST" });
+      if (r.status === 204) setStatus($("authStatus"), "로그아웃 완료 (204).", "ok");
+      else setStatus($("authStatus"), "응답: " + r.status + " " + JSON.stringify(r.body), "err");
+    } catch (e) { setStatus($("authStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
+  });
+
+  // ---------- 2. 학적 ----------
+  $("btnStudent").addEventListener("click", async function () {
+    busy(true);
+    setStatus($("studentStatus"), "조회 중...");
+    $("studentTable").innerHTML = "";
+    $("studentRawWrap").hidden = true;
+    $("studentJsonWrap").hidden = true;
+    try {
+      const r = await call("/api/v1/students/me", { method: "GET" });
+      $("studentJson").textContent = JSON.stringify(r.body, null, 2);
+      $("studentJsonWrap").hidden = false;
+      if (!r.ok) {
+        const msg = r.body && r.body.message ? r.body.message : JSON.stringify(r.body);
+        setStatus($("studentStatus"), "실패 (" + r.status + ") — " + msg, "err");
+        return;
+      }
+      const data = r.body || {};
+      renderKv($("studentTable"), Object.keys(STUDENT_LABELS).map(function (k) { return [STUDENT_LABELS[k], data[k]]; }));
+      if (data.raw && typeof data.raw === "object") {
+        const rawEntries = Object.keys(data.raw).map(function (k) { return [k, data.raw[k]]; });
+        renderKv($("studentRawTable"), rawEntries);
+        $("studentRawWrap").hidden = rawEntries.length === 0;
+      }
+      setStatus($("studentStatus"), "조회 성공 (200).", "ok");
+    } catch (e) { setStatus($("studentStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
+  });
+
+  // ---------- 3. 공지 ----------
+  function setMode(next) {
+    mode = next;
+    $("tabGeneral").classList.toggle("active", mode === "general");
+    $("tabDept").classList.toggle("active", mode === "department");
+    $("deptWrap").hidden = mode !== "department";
+  }
+  $("tabGeneral").addEventListener("click", function () { setMode("general"); });
+  $("tabDept").addEventListener("click", function () { setMode("department"); });
+
+  function listPath(page) {
+    if (mode === "department") {
+      return "/api/v1/notices/department?dept=" + encodeURIComponent($("dept").value) + "&page=" + page;
+    }
+    return "/api/v1/notices/general?page=" + page;
+  }
+  function detailPath(id) {
+    if (mode === "department") {
+      return "/api/v1/notices/department/" + encodeURIComponent(id) + "?dept=" + encodeURIComponent($("dept").value);
+    }
+    return "/api/v1/notices/general/" + encodeURIComponent(id);
+  }
+
+  async function loadList(page) {
+    const p = Math.max(1, parseInt(page, 10) || 1);
+    $("page").value = p;
+    busy(true);
+    setStatus($("listStatus"), "목록 조회 중...");
+    $("listTable").innerHTML = "";
+    $("pager").hidden = true;
+    $("detailBox").hidden = true;
+    try {
+      const r = await call(listPath(p), { method: "GET" });
+      $("listJson").textContent = JSON.stringify(r.body, null, 2);
+      $("listJsonWrap").hidden = false;
+      if (!r.ok) {
+        const msg = r.body && r.body.message ? r.body.message : JSON.stringify(r.body);
+        setStatus($("listStatus"), "실패 (" + r.status + ") — " + msg, "err");
+        return;
+      }
+      currentList = r.body || {};
+      renderList(currentList);
+      setStatus($("listStatus"), "조회 성공 (200). " + (currentList.notices ? currentList.notices.length : 0) + "건.", "ok");
+    } catch (e) { setStatus($("listStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
+  }
+
+  function renderList(data) {
+    const notices = data.notices || [];
+    const head = "<tr><th>고정</th><th>No</th><th>제목</th><th>작성자</th><th>날짜</th><th>조회</th><th>첨부</th></tr>";
+    const rows = notices.map(function (n) {
+      return "<tr class='clickable' data-id='" + esc(n.no) + "'>"
+        + "<td class='center'>" + (n.pinned ? "<span class='badge'>고정</span>" : "") + "</td>"
+        + "<td class='num'>" + cell(n.no) + "</td>"
+        + "<td>" + cell(n.subject) + "</td>"
+        + "<td class='center'>" + cell(n.writer) + "</td>"
+        + "<td class='center'>" + cell(n.time) + "</td>"
+        + "<td class='num'>" + cell(n.read) + "</td>"
+        + "<td class='num'>" + cell(n.files) + "</td>"
+        + "</tr>";
+    }).join("");
+    $("listTable").innerHTML = "<table class='list'>" + head + rows + "</table>";
+    $("listTable").querySelectorAll("tr.clickable").forEach(function (tr) {
+      tr.addEventListener("click", function () { loadDetail(tr.getAttribute("data-id")); });
+    });
+
+    $("pager").hidden = false;
+    $("pageMeta").textContent = "page " + data.page + " / " + data.totalPages
+      + "  ·  hasNext=" + data.hasNext + "  hasPrevious=" + data.hasPrevious;
+    $("pagePrev").disabled = !data.hasPrevious;
+    $("pageNext").disabled = !data.hasNext;
+  }
+
+  async function loadDetail(id) {
+    $("detailBox").hidden = false;
+    $("detailTable").innerHTML = "";
+    $("detailBody").innerHTML = "";
+    $("detailJsonWrap").hidden = true;
+    setStatus($("detailStatus"), "상세 조회 중... (id=" + id + ")");
+    busy(true);
+    try {
+      const r = await call(detailPath(id), { method: "GET" });
+      $("detailJson").textContent = JSON.stringify(r.body, null, 2);
+      $("detailJsonWrap").hidden = false;
+      if (!r.ok) {
+        const msg = r.body && r.body.message ? r.body.message : JSON.stringify(r.body);
+        setStatus($("detailStatus"), "실패 (" + r.status + ") — " + msg, "err");
+        return;
+      }
+      const d = r.body || {};
+      renderKv($("detailTable"), [
+        ["No", d.no], ["제목", d.subject], ["작성자", d.writer], ["날짜", d.time],
+        ["조회", d.read], ["분류", d.category],
+        ["첨부", (d.files && d.files.length) ? d.files.join(", ") : null]
+      ]);
+      $("detailBody").innerHTML = "<pre>" + esc(d.body || "") + "</pre>";
+      setStatus($("detailStatus"), "조회 성공 (200).", "ok");
+    } catch (e) { setStatus($("detailStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
+  }
+
+  $("btnList").addEventListener("click", function () { loadList($("page").value); });
+  $("pagePrev").addEventListener("click", function () {
+    if (currentList) loadList(currentList.page - 1);
+  });
+  $("pageNext").addEventListener("click", function () {
+    if (currentList) loadList(currentList.page + 1);
+  });
+})();
+</script>
+</body>
+</html>
