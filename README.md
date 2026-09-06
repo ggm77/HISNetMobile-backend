@@ -62,10 +62,6 @@ HISNet은 공개 API가 없고 전 페이지가 EUC-KR 레거시 HTML이다. 이
 | `GET`  | `/notices/department/{id}?dept={code}` | 학부공지 상세 |
 | `GET`  | `/notices/department/{id}/attachments/{index}?dept={code}` | 학부공지 첨부 다운로드 |
 
-**요청/응답 스키마, 상태 코드, 에러 코드, 학부 게시판 코드 표 → [`docs/API.md`](docs/API.md)**
-
-실행 중이면 Swagger UI(`/api/swagger`)에서도 확인할 수 있다.
-
 ---
 
 ## 프로젝트 구조
