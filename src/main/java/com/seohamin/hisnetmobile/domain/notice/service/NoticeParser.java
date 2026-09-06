@@ -65,6 +65,21 @@ public class NoticeParser {
     private static final Pattern ATTACHMENT_HREF_PATTERN =
             Pattern.compile("(download|filedown|file_down|down\\.php|getfile|attach)", Pattern.CASE_INSENSITIVE);
 
+    // list.php 목록 표 헤더(No / Subject / Files / Writer / Date / Read)의 라벨 → 표준 컬럼 키
+    private static final Map<String, String> LIST_COLUMN_LABELS = Map.ofEntries(
+            Map.entry("no", "no"), Map.entry("번호", "no"),
+            Map.entry("subject", "subject"), Map.entry("title", "subject"), Map.entry("제목", "subject"),
+            Map.entry("files", "files"), Map.entry("file", "files"), Map.entry("첨부", "files"), Map.entry("첨부파일", "files"),
+            Map.entry("writer", "writer"), Map.entry("작성자", "writer"), Map.entry("글쓴이", "writer"), Map.entry("이름", "writer"),
+            Map.entry("date", "date"), Map.entry("날짜", "date"), Map.entry("작성일", "date"), Map.entry("등록일", "date"),
+            Map.entry("read", "read"), Map.entry("hit", "read"), Map.entry("hits", "read"), Map.entry("조회", "read"), Map.entry("조회수", "read")
+    );
+
+    // 헤더를 못 찾을 때 쓰는 기본 컬럼 순서 (전 게시판이 이 순서로 확인됨)
+    private static final Map<String, Integer> DEFAULT_LIST_COLUMNS = Map.of(
+            "no", 0, "subject", 1, "files", 2, "writer", 3, "date", 4, "read", 5
+    );
+
     // read.php 하단에는 게시판 목록(tr.tr_basic)이 통째로 붙는다. 그 목록 행의 첨부 링크는 제외한다.
     // (기사 본문의 첨부 셀도 td.listBody 를 쓰므로 tr.tr_basic 으로만 걸러야 한다)
     private static final String DETAIL_LIST_ROW_SELECTOR = "tr.tr_basic";
@@ -97,13 +112,48 @@ public class NoticeParser {
             throw new CustomException(ExceptionCode.NOTICE_PARSING_FAILED);
         }
 
-        // 3) 행마다 셀을 훑어 요약 DTO 로 변환
+        // 3) 표 헤더에서 컬럼 위치 파악 (No/Subject/Files/Writer/Date/Read)
+        final Map<String, Integer> columns = resolveListColumns(document);
+
+        // 4) 행마다 셀을 컬럼 위치대로 읽어 요약 DTO 로 변환
         final List<SimpleNoticeResponseDto> notices = new ArrayList<>();
         for (final Map.Entry<String, Element> entry : rowById.entrySet()) {
-            notices.add(toSimpleNotice(entry.getKey(), entry.getValue()));
+            notices.add(toSimpleNotice(entry.getKey(), entry.getValue(), columns));
         }
 
         return notices;
+    }
+
+    /**
+     * 목록 표의 헤더 행("No | Subject | Files | Writer | Date | Read")을 찾아
+     * 표준 컬럼 키 → 셀 인덱스 맵을 만드는 메서드. 헤더를 못 찾으면 기본 순서를 쓴다.
+     */
+    private Map<String, Integer> resolveListColumns(final Document document) {
+
+        for (final Element row : document.select("tr")) {
+            final Elements cells = row.children();
+            if (cells.size() < 4 || cells.size() > 9) {
+                continue;
+            }
+
+            final Map<String, Integer> found = new LinkedHashMap<>();
+            for (int i = 0; i < cells.size(); i++) {
+                final String label = cells.get(i).text().trim().toLowerCase(Locale.ROOT);
+                final String key = LIST_COLUMN_LABELS.get(label);
+                if (key != null) {
+                    found.putIfAbsent(key, i);
+                }
+            }
+
+            // Subject 를 포함해 3개 이상 매칭되면 헤더로 인정
+            if (found.containsKey("subject") && found.size() >= 3) {
+                final Map<String, Integer> columns = new LinkedHashMap<>(DEFAULT_LIST_COLUMNS);
+                columns.putAll(found);
+                return columns;
+            }
+        }
+
+        return DEFAULT_LIST_COLUMNS;
     }
 
     /**
@@ -319,53 +369,33 @@ public class NoticeParser {
 
     /**
      * 목록 행 하나를 요약 DTO 로 변환하는 메서드.
-     * 셀 순서(번호/제목/첨부/작성자/날짜/조회)가 게시판마다 미묘하게 다를 수 있어 값의 형태로 역추론한다.
+     * 셀은 헤더에서 파악한 컬럼 위치(No/Subject/Files/Writer/Date/Read)대로 읽는다.
+     * No·Subject 칸에 모두 read.php 링크가 걸려 있으므로 위치 없이 링크로만 뽑으면 제목/번호가 섞인다.
      */
     private SimpleNoticeResponseDto toSimpleNotice(
             final String noticeId,
-            final Element row
+            final Element row,
+            final Map<String, Integer> columns
     ) {
         final Elements cells = row.select("td");
-        final boolean pinned = isPinnedRow(cells);
 
-        final String subject = row.select(READ_LINK_SELECTOR).stream()
-                .map(Element::text)
-                .map(String::trim)
-                .filter(text -> !text.isEmpty())
-                .findFirst()
-                .orElse("");
+        final String noText = cellText(cells, columns.get("no"));
+        final boolean pinned = noText != null && !DIGITS_ONLY.matcher(noText).matches();
 
-        LocalDate time = null;
-        Integer read = null;
-        String writer = null;
-
-        for (final Element cell : cells) {
-            final String text = cell.text().trim();
-            if (text.isEmpty() || text.equals(subject)) {
-                continue;
-            }
-
-            final LocalDate parsedDate = parseDate(text);
-            if (parsedDate != null) {
-                time = parsedDate;
-                continue;
-            }
-
-            if (DIGITS_ONLY.matcher(text).matches()) {
-                // 숫자 셀은 번호/조회수 후보 → 마지막 숫자 셀을 조회수로 본다
-                read = Integer.valueOf(text);
-                continue;
-            }
-
-            if (writer == null) {
-                writer = text;
-            }
+        String subject = cellText(cells, columns.get("subject"));
+        if (subject == null) {
+            subject = longestReadLinkText(row);
         }
+
+        final String writer = cellText(cells, columns.get("writer"));
+        final LocalDate time = parseDate(cellText(cells, columns.get("date")));
+        final Integer read = parseIntOrNull(cellText(cells, columns.get("read")));
+        final Integer files = countFiles(cells, columns.get("files"), row);
 
         return new SimpleNoticeResponseDto(
                 noticeId,
-                subject,
-                countAttachments(row),
+                subject != null ? subject : "",
+                files,
                 writer,
                 time,
                 read,
@@ -374,16 +404,57 @@ public class NoticeParser {
     }
 
     /**
-     * 고정공지 행 여부를 판별하는 메서드.
-     * 일반 행은 첫 셀(No 칸)이 게시글 번호(숫자)지만, 고정공지 행은 "고정공지" 같은 라벨이 들어간다.
+     * 셀 목록에서 인덱스로 텍스트를 꺼내는 메서드.
+     * @return 인덱스가 없거나 범위를 벗어나거나 빈 값이면 null
      */
-    private boolean isPinnedRow(final Elements cells) {
-        if (cells.isEmpty()) {
-            return false;
+    private String cellText(
+            final Elements cells,
+            final Integer index
+    ) {
+        if (index == null || index < 0 || index >= cells.size()) {
+            return null;
         }
-        final String noText = cells.first().text().trim();
+        final String text = cells.get(index).text().trim();
 
-        return !noText.isEmpty() && !DIGITS_ONLY.matcher(noText).matches();
+        return text.isEmpty() ? null : text;
+    }
+
+    /**
+     * 행 안의 read.php 링크 중 번호/고정공지 라벨이 아닌 가장 긴 텍스트를 제목으로 보는 폴백 메서드.
+     */
+    private String longestReadLinkText(final Element row) {
+        String best = null;
+        for (final Element link : row.select(READ_LINK_SELECTOR)) {
+            final String text = link.text().trim();
+            if (text.isEmpty() || DIGITS_ONLY.matcher(text).matches()) {
+                continue;
+            }
+            if (best == null || text.length() > best.length()) {
+                best = text;
+            }
+        }
+
+        return best;
+    }
+
+    /**
+     * Files 컬럼의 다운로드 링크 수로 첨부 개수를 세는 메서드.
+     * 컬럼을 못 찾으면 행 전체에서 아이콘/링크로 추정한다.
+     */
+    private Integer countFiles(
+            final Elements cells,
+            final Integer filesIndex,
+            final Element row
+    ) {
+        if (filesIndex != null && filesIndex >= 0 && filesIndex < cells.size()) {
+            final long links = cells.get(filesIndex).select("a[href]").stream()
+                    .filter(link -> ATTACHMENT_HREF_PATTERN.matcher(link.attr("href")).find())
+                    .count();
+
+            return (int) links;
+        }
+
+        return countAttachments(row);
     }
 
     /**

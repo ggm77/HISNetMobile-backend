@@ -1,13 +1,16 @@
 package com.seohamin.hisnetmobile.domain.notice.service;
 
 import com.seohamin.hisnetmobile.domain.notice.dto.NoticeResponseDto;
+import com.seohamin.hisnetmobile.domain.notice.dto.SimpleNoticeResponseDto;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * read.php 상세 파싱 회귀 테스트.
@@ -76,5 +79,69 @@ class NoticeParserTest {
         final NoticeResponseDto result = parser.parseDetail(document, "175753");
 
         assertThat(result.files()).containsExactly("첨부_안내문.pdf");
+    }
+
+    /**
+     * list.php 목록 표: 헤더 {@code No | Subject | Files | Writer | Date | Read},
+     * 데이터 행은 {@code tr.tr_basic}, No·Subject 칸 모두 read.php 링크가 걸려 있다.
+     * 고정공지 행은 No 칸이 "고정공지".
+     */
+    private static final String LIST_HTML = """
+            <html><body>
+            <table>
+              <tr>
+                <td class="listTitleBorder"><div>No</div></td>
+                <td class="listTitleBorder"><div>Subject</div></td>
+                <td class="listTitleBorder"><div>Files</div></td>
+                <td class="listTitleBorder"><div>Writer</div></td>
+                <td class="listTitleBorder"><div>Date</div></td>
+                <td class="listTitleBorder"><div>Read</div></td>
+              </tr>
+              <tr class="tr_basic">
+                <td class="listBody"><a href="read.php?id=175708&Board=NB0001&Page=1">고정공지</a></td>
+                <td class="listBody"><a href="read.php?id=175708&Board=NB0001&Page=1">[교무팀] 폐강과목 안내</a></td>
+                <td class="listBody">- -</td>
+                <td class="listBody">kylelee00</td>
+                <td class="listBody">2026-09-03</td>
+                <td class="listBody">1,169.</td>
+              </tr>
+              <tr class="tr_basic">
+                <td class="listBody"><a href="read.php?id=175600&Board=NB0001&Page=1">344</a></td>
+                <td class="listBody"><a href="read.php?id=175600&Board=NB0001&Page=1">🌐지속가능한 지역을 위한 수요조사</a></td>
+                <td class="listBody"><a href="down.php?id=175600&fidx=1">1</a><a href="down.php?id=175600&fidx=2">2</a></td>
+                <td class="listBody">bgd6315</td>
+                <td class="listBody">2026-09-04</td>
+                <td class="listBody">8.</td>
+              </tr>
+            </table>
+            <table>
+              <tr><td class="listTitleBorder">1</td><td>2</td><td>3</td></tr>
+              <tr><td><a href="list.php?Board=NB0001&Page=2">2</a><a href="list.php?Board=NB0001&Page=3532">&gt;&gt;</a></td></tr>
+            </table>
+            </body></html>
+            """;
+
+    @Test
+    void 목록은_헤더_컬럼_위치대로_제목_작성자_날짜_조회수_첨부수를_읽는다() {
+        final Document document = Jsoup.parse(LIST_HTML, "https://hisnet.handong.edu");
+
+        final List<SimpleNoticeResponseDto> notices = parser.parseList(document);
+
+        assertThat(notices)
+                .extracting(SimpleNoticeResponseDto::id, SimpleNoticeResponseDto::subject,
+                        SimpleNoticeResponseDto::writer, SimpleNoticeResponseDto::time,
+                        SimpleNoticeResponseDto::read, SimpleNoticeResponseDto::files,
+                        SimpleNoticeResponseDto::pinned)
+                .containsExactly(
+                        tuple("175708", "[교무팀] 폐강과목 안내", "kylelee00", LocalDate.of(2026, 9, 3), 1169, 0, true),
+                        tuple("175600", "🌐지속가능한 지역을 위한 수요조사", "bgd6315", LocalDate.of(2026, 9, 4), 8, 2, false)
+                );
+    }
+
+    @Test
+    void 목록_페이저에서_마지막_페이지를_읽는다() {
+        final Document document = Jsoup.parse(LIST_HTML, "https://hisnet.handong.edu");
+
+        assertThat(parser.parseTotalPages(document)).isEqualTo(3532);
     }
 }

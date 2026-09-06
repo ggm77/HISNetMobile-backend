@@ -55,7 +55,7 @@ public class NoticeController {
             @RequestParam final String dept
     ) {
 
-        return ResponseEntity.ok(noticeService.getDepartmentNotice(userDetails, id, dept));
+        return ResponseEntity.ok(noticeService.getDepartmentNotice(userDetails, dept, id));
     }
 
 }
