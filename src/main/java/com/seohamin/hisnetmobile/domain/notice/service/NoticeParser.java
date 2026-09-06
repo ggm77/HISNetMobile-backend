@@ -45,8 +45,9 @@ public class NoticeParser {
     private static final Pattern DIGITS_ONLY = Pattern.compile("^\\d+$");
 
     // read.php 상세: 헤더 메타는 div.readText 안의 라벨/값 span 묶음, 본문은 td.readText.BoardContent
-    private static final String DETAIL_HEADER_SELECTOR = "div.readText.cls_Padding10";
-    private static final String DETAIL_BODY_SELECTOR = "td.readText.BoardContent, .BoardContent";
+    // (헤더 블록은 "readText cls_Padding10", 본문 셀은 td 라서 div.readText 로만 잡아도 헤더만 걸린다)
+    private static final String DETAIL_HEADER_SELECTOR = "div.readText";
+    private static final String DETAIL_BODY_SELECTOR = "td.readText.BoardContent, .BoardContent, td.BoardContent";
     // 제목 블록 맨 앞에 붙는 "175753." 같은 글 ID 토큰
     private static final Pattern LEADING_ID_TOKEN = Pattern.compile("^\\d+\\.?$");
     // 첨부 링크 텍스트 끝의 " (1,321,448 bytes)" 꼬리
@@ -149,7 +150,7 @@ public class NoticeParser {
             subject = findValueByLabel(document, SUBJECT_LABELS);
         }
         if (isBlank(subject)) {
-            log.warn("[공지 본문 파싱 실패] 제목을 찾지 못함 noticeId={}", noticeId);
+            log.warn("[공지 본문 파싱 실패] 제목을 찾지 못함 noticeId={} / {}", noticeId, describeDocument(document));
             throw new CustomException(ExceptionCode.NOTICE_PARSING_FAILED);
         }
 
@@ -177,22 +178,36 @@ public class NoticeParser {
     }
 
     /**
+     * 파싱 실패 시 원본 응답의 정체를 로그로 남기기 위한 요약 메서드.
+     * (세션 만료 페이지인지, 구조가 바뀐 건지, 인코딩이 깨진 건지 구분하기 위함)
+     */
+    private String describeDocument(final Document document) {
+        final String text = document.body() != null ? document.body().text() : document.text();
+        final String head = text.length() > 300 ? text.substring(0, 300) : text;
+
+        return String.format(
+                "htmlLen=%d, title='%s', div.readText=%d, readText.cls_Padding10=%d, span=%d, BoardContent=%d, td=%d, bodyTextHead='%s'",
+                document.outerHtml().length(),
+                document.title(),
+                document.select("div.readText").size(),
+                document.select("div.readText.cls_Padding10").size(),
+                document.select("span").size(),
+                document.select(DETAIL_BODY_SELECTOR).size(),
+                document.select("td").size(),
+                head.replaceAll("\\s+", " ")
+        );
+    }
+
+    /**
      * read.php 헤더의 {@code div.readText} 블록들을 훑어 "라벨 → 값" 맵을 만드는 메서드.
      * 라벨과 값이 이웃한 leaf span 으로 나온다. 중첩 span 이 있으면 부모는 건너뛰고 자식만 본다.
+     * readText 블록을 못 찾으면(파서가 구조를 뭉갠 경우) 문서 전체의 span 을 훑는다.
      */
     private Map<String, String> parseDetailHeader(final Document document) {
 
-        final List<String> tokens = new ArrayList<>();
-        for (final Element block : document.select(DETAIL_HEADER_SELECTOR)) {
-            for (final Element span : block.select("span")) {
-                if (!span.select("span").isEmpty()) {
-                    continue;
-                }
-                final String text = span.text().trim();
-                if (!text.isEmpty()) {
-                    tokens.add(text);
-                }
-            }
+        List<String> tokens = leafSpanTokens(document.select(DETAIL_HEADER_SELECTOR));
+        if (tokens.isEmpty()) {
+            tokens = leafSpanTokens(document.select("span"));
         }
 
         final Map<String, String> header = new LinkedHashMap<>();
@@ -204,6 +219,24 @@ public class NoticeParser {
         }
 
         return header;
+    }
+
+    /**
+     * span 목록에서 leaf(자식 span 없는) span 의 텍스트만 순서대로 뽑는 메서드.
+     */
+    private List<String> leafSpanTokens(final Elements spans) {
+        final List<String> tokens = new ArrayList<>();
+        for (final Element span : spans) {
+            if (!span.select("span").isEmpty()) {
+                continue;
+            }
+            final String text = span.text().trim();
+            if (!text.isEmpty()) {
+                tokens.add(text);
+            }
+        }
+
+        return tokens;
     }
 
     /**
@@ -231,26 +264,32 @@ public class NoticeParser {
 
     /**
      * 제목을 뽑는 메서드. 첫 헤더 블록의 leaf span 중 "글 ID." 토큰을 뺀 나머지를 이어붙인다.
+     * 헤더 블록을 못 찾으면, 문서 전체에서 "숫자." 토큰 바로 뒤의 span 을 제목으로 본다.
      */
     private String extractDetailSubject(final Document document) {
         final Element firstBlock = document.selectFirst(DETAIL_HEADER_SELECTOR);
-        if (firstBlock == null) {
-            return null;
+        if (firstBlock != null) {
+            final List<String> parts = new ArrayList<>();
+            for (final String token : leafSpanTokens(firstBlock.select("span"))) {
+                if (!LEADING_ID_TOKEN.matcher(token).matches()) {
+                    parts.add(token);
+                }
+            }
+            if (!parts.isEmpty()) {
+                return String.join(" ", parts);
+            }
         }
 
-        final List<String> parts = new ArrayList<>();
-        for (final Element span : firstBlock.select("span")) {
-            if (!span.select("span").isEmpty()) {
-                continue;
+        // 폴백: 전체 span 토큰에서 "175753." 다음 토큰
+        final List<String> allTokens = leafSpanTokens(document.select("span"));
+        for (int i = 0; i + 1 < allTokens.size(); i++) {
+            if (LEADING_ID_TOKEN.matcher(allTokens.get(i)).matches()
+                    && !LEADING_ID_TOKEN.matcher(allTokens.get(i + 1)).matches()) {
+                return allTokens.get(i + 1);
             }
-            final String text = span.text().trim();
-            if (text.isEmpty() || LEADING_ID_TOKEN.matcher(text).matches()) {
-                continue;
-            }
-            parts.add(text);
         }
 
-        return parts.isEmpty() ? null : String.join(" ", parts);
+        return null;
     }
 
     /**
