@@ -8,6 +8,7 @@ public record SimpleNoticeResponseDto(
         Integer files,
         String writer,
         LocalDate time,
-        Integer read
+        Integer read,
+        boolean pinned
 ) {
 }

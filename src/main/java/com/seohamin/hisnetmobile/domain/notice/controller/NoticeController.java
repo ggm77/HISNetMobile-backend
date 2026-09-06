@@ -16,13 +16,14 @@ public class NoticeController {
 
     private final NoticeService noticeService;
 
-    // 일반공지 리스트 조회 API
+    // 일반공지 리스트 조회 API (page: 1부터, 기본 1)
     @GetMapping("/general")
     public ResponseEntity<NoticeListResponseDto> getGeneralNoticeList(
-            @AuthenticationPrincipal final UserDetails userDetails
+            @AuthenticationPrincipal final UserDetails userDetails,
+            @RequestParam(defaultValue = "1") final int page
     ) {
 
-        return ResponseEntity.ok(noticeService.getGeneralNoticeList(userDetails));
+        return ResponseEntity.ok(noticeService.getGeneralNoticeList(userDetails, page));
     }
 
     // 특정 일반공지 조회 API
@@ -35,14 +36,15 @@ public class NoticeController {
         return ResponseEntity.ok(noticeService.getGeneralNotice(userDetails, id));
     }
 
-    // 학부 공지 리스트 조회 API
+    // 학부 공지 리스트 조회 API (page: 1부터, 기본 1)
     @GetMapping("/department")
     public ResponseEntity<NoticeListResponseDto> getDepartmentNoticeList(
             @AuthenticationPrincipal final UserDetails userDetails,
-            @RequestParam final String dept
+            @RequestParam final String dept,
+            @RequestParam(defaultValue = "1") final int page
     ) {
 
-        return ResponseEntity.ok(noticeService.getDepartmentNoticeList(userDetails, dept));
+        return ResponseEntity.ok(noticeService.getDepartmentNoticeList(userDetails, dept, page));
     }
 
     // 특정 학부 공지 조회 API

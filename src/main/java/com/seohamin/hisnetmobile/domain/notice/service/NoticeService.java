@@ -3,6 +3,7 @@ package com.seohamin.hisnetmobile.domain.notice.service;
 import com.seohamin.hisnetmobile.domain.notice.constant.Board;
 import com.seohamin.hisnetmobile.domain.notice.dto.NoticeListResponseDto;
 import com.seohamin.hisnetmobile.domain.notice.dto.NoticeResponseDto;
+import com.seohamin.hisnetmobile.domain.notice.dto.SimpleNoticeResponseDto;
 import com.seohamin.hisnetmobile.global.exception.CustomException;
 import com.seohamin.hisnetmobile.global.exception.constants.ExceptionCode;
 import com.seohamin.hisnetmobile.global.infra.hisnet.HisnetClient;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
@@ -27,8 +29,8 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class NoticeService {
 
-    // 목록/본문 조회는 첫 페이지 기준 (페이징 파라미터는 컨트롤러 확장 시 노출 예정)
-    private static final int DEFAULT_PAGE = 1;
+    // 페이지 번호는 1부터. 본문(read.php) 조회는 페이지 맥락이 의미 없어 이 값을 그대로 쓴다.
+    private static final int FIRST_PAGE = 1;
 
     // 글 ID 는 원본이 숫자 ID 를 쓰므로 숫자만 허용
     private static final Pattern NOTICE_NO_PATTERN = Pattern.compile("^\\d+$");
@@ -39,11 +41,15 @@ public class NoticeService {
     /**
      * 일반공지 목록을 조회하는 메서드.
      * @param userDetails 인증 주체 (원본 세션 보유)
-     * @return 공지 요약 리스트
+     * @param page 조회할 페이지 (1부터, 1 미만은 1로 보정)
+     * @return 공지 요약 리스트 (+ 페이지 정보)
      */
-    public NoticeListResponseDto getGeneralNoticeList(final UserDetails userDetails) {
+    public NoticeListResponseDto getGeneralNoticeList(
+            final UserDetails userDetails,
+            final int page
+    ) {
 
-        return getNoticeList(userDetails, Board.GENERAL);
+        return getNoticeList(userDetails, Board.GENERAL, page);
     }
 
     /**
@@ -64,14 +70,16 @@ public class NoticeService {
      * 특정 학부 게시판의 공지 목록을 조회하는 메서드.
      * @param userDetails 인증 주체 (원본 세션 보유)
      * @param departmentId 학부 게시판 코드 (프론트에서 전달, 전 학과 대상)
-     * @return 공지 요약 리스트
+     * @param page 조회할 페이지 (1부터, 1 미만은 1로 보정)
+     * @return 공지 요약 리스트 (+ 페이지 정보)
      */
     public NoticeListResponseDto getDepartmentNoticeList(
             final UserDetails userDetails,
-            final String departmentId
+            final String departmentId,
+            final int page
     ) {
 
-        return getNoticeList(userDetails, Board.department(departmentId));
+        return getNoticeList(userDetails, Board.department(departmentId), page);
     }
 
     /**
@@ -91,21 +99,42 @@ public class NoticeService {
     }
 
     /**
-     * 게시판 코드로 목록 페이지를 릴레이·파싱하는 공통 메서드.
+     * 게시판 코드 + 페이지로 목록을 릴레이·파싱하는 공통 메서드.
+     * 고정공지는 모든 페이지에 반복되므로 2페이지부터는 걸러낸다.
      */
     private NoticeListResponseDto getNoticeList(
             final UserDetails userDetails,
-            final String boardCode
+            final String boardCode,
+            final int page
     ) {
 
-        // 1) 인증 주체에서 원본 세션(PHPSESSID) 추출
+        // 1) 페이지 보정 (1 미만은 1) — 원본은 최대 페이지 초과 시 마지막 페이지로 클램프한다
+        final int safePage = Math.max(page, FIRST_PAGE);
+
+        // 2) 인증 주체에서 원본 세션(PHPSESSID) 추출
         final HisnetSession session = resolveSession(userDetails);
 
-        // 2) 목록 페이지 GET 릴레이 (EUC-KR → Document)
-        final Document document = hisnetClient.get(listPath(boardCode), session);
+        // 3) 목록 페이지 GET 릴레이 (EUC-KR → Document)
+        final Document document = hisnetClient.get(listPath(boardCode, safePage), session);
 
-        // 3) 파싱해서 요약 리스트로 응답
-        return new NoticeListResponseDto(noticeParser.parseList(document));
+        // 4) 파싱 + 2페이지부터 고정공지 제외
+        List<SimpleNoticeResponseDto> notices = noticeParser.parseList(document);
+        if (safePage > FIRST_PAGE) {
+            notices = notices.stream()
+                    .filter(notice -> !notice.pinned())
+                    .toList();
+        }
+
+        // 5) 페이저에서 마지막 페이지 파악 후 페이지 메타 구성
+        final int totalPages = Math.max(safePage, noticeParser.parseTotalPages(document));
+
+        return new NoticeListResponseDto(
+                notices,
+                safePage,
+                totalPages,
+                safePage < totalPages,
+                safePage > FIRST_PAGE
+        );
     }
 
     /**
@@ -150,9 +179,12 @@ public class NoticeService {
     /**
      * 목록 조회용 원본 경로를 만드는 메서드.
      */
-    private String listPath(final String boardCode) {
+    private String listPath(
+            final String boardCode,
+            final int page
+    ) {
         return "/myboard/list.php?Board=" + encode(boardCode)
-                + "&Page=" + DEFAULT_PAGE
+                + "&Page=" + page
                 + "&FindIt=&FindText=";
     }
 
@@ -165,7 +197,7 @@ public class NoticeService {
     ) {
         return "/myboard/read.php?id=" + encode(noticeNo)
                 + "&Board=" + encode(boardCode)
-                + "&Page=" + DEFAULT_PAGE;
+                + "&Page=" + FIRST_PAGE;
     }
 
     private String encode(final String value) {

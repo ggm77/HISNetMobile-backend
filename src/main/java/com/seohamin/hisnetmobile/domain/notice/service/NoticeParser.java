@@ -33,6 +33,10 @@ public class NoticeParser {
     private static final String READ_LINK_SELECTOR = "a[href*=read.php]";
     private static final Pattern READ_ID_PATTERN = Pattern.compile("[?&]id=([^&]+)");
 
+    // 목록 하단 페이저 링크(list.php?...&Page=N) → 마지막 페이지 파악
+    private static final String PAGER_LINK_SELECTOR = "a[href*=list.php]";
+    private static final Pattern PAGE_PARAM_PATTERN = Pattern.compile("[?&]Page=(\\d{1,9})");
+
     // 날짜 셀 형식: 2026-09-01 / 2026.09.01 / 26.09.01 등
     private static final Pattern DATE_PATTERN = Pattern.compile("(\\d{2,4})[.\\-/](\\d{1,2})[.\\-/](\\d{1,2})");
     private static final Pattern DIGITS_ONLY = Pattern.compile("^\\d+$");
@@ -86,6 +90,25 @@ public class NoticeParser {
     }
 
     /**
+     * 목록 페이지 하단 페이저에서 마지막(최대) 페이지 번호를 뽑는 메서드.
+     * 페이저는 list.php 링크들의 {@code Page} 파라미터로 구성되고, {@code >>} 링크가 마지막 페이지를 가리킨다.
+     * @param document EUC-KR 로 디코딩된 목록 페이지
+     * @return 파악된 마지막 페이지. 페이저가 없으면 1.
+     */
+    public int parseTotalPages(final Document document) {
+
+        int lastPage = 1;
+        for (final Element link : document.select(PAGER_LINK_SELECTOR)) {
+            final Matcher matcher = PAGE_PARAM_PATTERN.matcher(link.attr("href"));
+            while (matcher.find()) {
+                lastPage = Math.max(lastPage, Integer.parseInt(matcher.group(1)));
+            }
+        }
+
+        return lastPage;
+    }
+
+    /**
      * 본문 페이지(read.php)를 파싱해 공지 상세로 변환하는 메서드.
      * @param document EUC-KR 로 디코딩된 본문 페이지
      * @param noticeNo 요청한 글 ID (응답에 그대로 실어준다)
@@ -135,6 +158,7 @@ public class NoticeParser {
             final Element row
     ) {
         final Elements cells = row.select("td");
+        final boolean pinned = isPinnedRow(cells);
 
         final String subject = row.select(READ_LINK_SELECTOR).stream()
                 .map(Element::text)
@@ -176,8 +200,22 @@ public class NoticeParser {
                 countAttachments(row),
                 writer,
                 time,
-                read
+                read,
+                pinned
         );
+    }
+
+    /**
+     * 고정공지 행 여부를 판별하는 메서드.
+     * 일반 행은 첫 셀(No 칸)이 게시글 번호(숫자)지만, 고정공지 행은 "고정공지" 같은 라벨이 들어간다.
+     */
+    private boolean isPinnedRow(final Elements cells) {
+        if (cells.isEmpty()) {
+            return false;
+        }
+        final String noText = cells.first().text().trim();
+
+        return !noText.isEmpty() && !DIGITS_ONLY.matcher(noText).matches();
     }
 
     /**
