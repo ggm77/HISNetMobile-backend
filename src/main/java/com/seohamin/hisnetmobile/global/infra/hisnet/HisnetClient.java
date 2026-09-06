@@ -12,6 +12,8 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.Charset;
 
 /**
@@ -69,6 +71,57 @@ public class HisnetClient {
      */
     public void verifySession(final HisnetSession session) {
         get(SESSION_PROBE_PATH, session);
+    }
+
+    /**
+     * 바이너리 응답(첨부 다운로드 등)을 원본에서 GET 해 스트리밍으로 소비자에게 넘기는 메서드.
+     * <p>
+     * 응답 헤더와 본문 스트림을 콜백 안에서 소비하며(콜백 종료 시 커넥션이 닫힘), 본문을 메모리에
+     * 통째로 담지 않는다. down.php 는 세션이 없어도 파일을 주지만, 있으면 쿠키를 함께 실어 보낸다.
+     * @param path     원본 기준 경로 + 쿼리스트링 (예: /myboard/down.php?Board=..&id=..&fidx=1)
+     * @param session  원본 세션 쿠키 (null 또는 비어 있으면 쿠키 없이 요청)
+     * @param consumer (응답 헤더, 본문 스트림) 을 받아 처리하는 콜백
+     */
+    public void download(
+            final String path,
+            final HisnetSession session,
+            final BinaryResponseConsumer consumer
+    ) {
+        try {
+            hisnetRestClient.get()
+                    .uri(path)
+                    .headers(headers -> {
+                        if (session != null && session.phpSessionId() != null && !session.phpSessionId().isBlank()) {
+                            headers.add(HttpHeaders.COOKIE, session.toCookieHeader());
+                        }
+                    })
+                    .exchange((clientRequest, clientResponse) -> {
+                        final HttpStatusCode status = clientResponse.getStatusCode();
+                        if (status.is3xxRedirection()) {
+                            throw new CustomException(ExceptionCode.SESSION_EXPIRED);
+                        }
+                        if (!status.is2xxSuccessful()) {
+                            log.warn("[HISNet 다운로드 비정상 응답] path={}, status={}", path, status.value());
+                            throw new CustomException(ExceptionCode.HISNET_REQUEST_FAILED);
+                        }
+
+                        consumer.accept(clientResponse.getHeaders(), clientResponse.getBody());
+                        return null;
+                    });
+        } catch (final CustomException ex) {
+            throw ex;
+        } catch (final Exception ex) {
+            log.error("[HISNet 다운로드 실패] path={}", path, ex);
+            throw new CustomException(ExceptionCode.HISNET_REQUEST_FAILED, ex);
+        }
+    }
+
+    /**
+     * 원본 바이너리 응답의 헤더와 본문 스트림을 받아 처리하는 콜백.
+     */
+    @FunctionalInterface
+    public interface BinaryResponseConsumer {
+        void accept(HttpHeaders headers, InputStream body) throws IOException;
     }
 
     /**

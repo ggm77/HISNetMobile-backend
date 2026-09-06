@@ -196,7 +196,22 @@
     return String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   }
   function cell(v) {
+    if (v && typeof v === "object" && "html" in v) return v.html;
     return (v === null || v === undefined || v === "") ? '<span class="empty">(없음)</span>' : esc(v);
+  }
+
+  // 첨부 목록을 다운로드 링크(<a href=...attachments/{index}>)로 렌더
+  function attachmentsHtml(noticeId, files) {
+    if (!Array.isArray(files) || files.length === 0) return null;
+    const links = files.map(function (f) {
+      const params = new URLSearchParams();
+      if (mode === "department") params.set("dept", $("dept").value);
+      if (f.name) params.set("name", f.name);
+      const url = "/api/v1/notices/" + mode + "/" + encodeURIComponent(noticeId)
+        + "/attachments/" + f.index + "?" + params.toString();
+      return '<a href="' + esc(url) + '" download>' + esc(f.name || ("첨부 " + f.index)) + "</a>";
+    });
+    return { html: links.join("<br>") };
   }
 
   async function call(path, options) {
@@ -387,7 +402,7 @@
       renderKv($("detailTable"), [
         ["ID", d.id], ["제목", d.subject], ["작성자", d.writer], ["날짜", d.time],
         ["조회", d.read], ["분류", d.category],
-        ["첨부", (d.files && d.files.length) ? d.files.join(", ") : null]
+        ["첨부", attachmentsHtml(id, d.files)]
       ]);
       $("detailBody").innerHTML = "<pre>" + esc(d.body || "") + "</pre>";
       setStatus($("detailStatus"), "조회 성공 (200).", "ok");

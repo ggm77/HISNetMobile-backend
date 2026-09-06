@@ -1,5 +1,6 @@
 package com.seohamin.hisnetmobile.domain.notice.service;
 
+import com.seohamin.hisnetmobile.domain.notice.dto.AttachmentResponseDto;
 import com.seohamin.hisnetmobile.domain.notice.dto.NoticeResponseDto;
 import com.seohamin.hisnetmobile.domain.notice.dto.SimpleNoticeResponseDto;
 import com.seohamin.hisnetmobile.global.exception.CustomException;
@@ -53,6 +54,8 @@ public class NoticeParser {
     // 첨부 링크 텍스트 끝의 " (1,321,448 bytes)" 꼬리
     private static final Pattern ATTACHMENT_SIZE_SUFFIX =
             Pattern.compile("\\s*\\([\\d,]+\\s*bytes\\)\\s*$", Pattern.CASE_INSENSITIVE);
+    // down.php?...&fidx=N — 첨부 인덱스
+    private static final Pattern ATTACHMENT_FIDX_PATTERN = Pattern.compile("[?&]fidx=(\\d{1,4})");
 
     // 본문 상세 페이지의 라벨 텍스트 (원본이 영문 라벨 Date/Writer/Read/Category 를 쓴다. 구 레이아웃용 국문도 함께)
     private static final List<String> SUBJECT_LABELS = List.of("제목", "subject");
@@ -212,8 +215,8 @@ public class NoticeParser {
         // 3) 본문
         final String body = extractBody(document);
 
-        // 4) 첨부파일 이름 (하단 게시판 목록의 첨부 링크는 제외)
-        final List<String> files = extractAttachmentNames(document);
+        // 4) 첨부파일 (하단 게시판 목록의 첨부 링크는 제외)
+        final List<AttachmentResponseDto> files = extractAttachments(document);
 
         return new NoticeResponseDto(
                 noticeId,
@@ -528,17 +531,18 @@ public class NoticeParser {
     }
 
     /**
-     * 첨부파일 링크의 표시 이름을 수집하는 메서드.
+     * 첨부파일(인덱스 + 파일명)을 수집하는 메서드.
      * read.php 하단에 붙는 게시판 목록의 첨부 링크는 제외하기 위해 "기사 영역"으로 범위를 좁힌다.
-     * 링크 텍스트가 파일명이며, 끝의 "(12,345 bytes)" 꼬리는 떼고 숫자만인 텍스트는 버린다.
+     * 인덱스는 {@code down.php?...&fidx=N}, 파일명은 링크 텍스트에서 " (12,345 bytes)" 꼬리를 뗀 값.
      */
-    private List<String> extractAttachmentNames(final Document document) {
+    private List<AttachmentResponseDto> extractAttachments(final Document document) {
         final Element articleScope = detailArticleScope(document);
         final Element searchRoot = articleScope != null ? articleScope : document;
 
-        final List<String> names = new ArrayList<>();
+        final Map<Integer, AttachmentResponseDto> byIndex = new LinkedHashMap<>();
         for (final Element link : searchRoot.select("a[href]")) {
-            if (!ATTACHMENT_HREF_PATTERN.matcher(link.attr("href")).find()) {
+            final String href = link.attr("href");
+            if (!ATTACHMENT_HREF_PATTERN.matcher(href).find()) {
                 continue;
             }
             // 하단 게시판 목록(tr.tr_basic) 안의 링크면 제외.
@@ -547,16 +551,21 @@ public class NoticeParser {
                 continue;
             }
 
-            final String name = ATTACHMENT_SIZE_SUFFIX.matcher(link.text().trim()).replaceAll("").trim();
-            if (name.isEmpty() || DIGITS_ONLY.matcher(name).matches()) {
+            final Matcher fidxMatcher = ATTACHMENT_FIDX_PATTERN.matcher(href);
+            if (!fidxMatcher.find()) {
                 continue;
             }
-            if (!names.contains(name)) {
-                names.add(name);
+            final int index = Integer.parseInt(fidxMatcher.group(1));
+
+            String name = ATTACHMENT_SIZE_SUFFIX.matcher(link.text().trim()).replaceAll("").trim();
+            if (name.isEmpty() || DIGITS_ONLY.matcher(name).matches()) {
+                name = "attachment_" + index;
             }
+
+            byIndex.putIfAbsent(index, new AttachmentResponseDto(index, name));
         }
 
-        return names;
+        return new ArrayList<>(byIndex.values());
     }
 
     /**

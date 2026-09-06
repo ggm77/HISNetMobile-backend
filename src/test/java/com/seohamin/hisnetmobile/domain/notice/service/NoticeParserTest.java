@@ -1,5 +1,6 @@
 package com.seohamin.hisnetmobile.domain.notice.service;
 
+import com.seohamin.hisnetmobile.domain.notice.dto.AttachmentResponseDto;
 import com.seohamin.hisnetmobile.domain.notice.dto.NoticeResponseDto;
 import com.seohamin.hisnetmobile.domain.notice.dto.SimpleNoticeResponseDto;
 import org.jsoup.Jsoup;
@@ -73,12 +74,14 @@ class NoticeParserTest {
     }
 
     @Test
-    void 첨부는_기사영역만_수집하고_하단_목록의_다운로드_링크와_크기꼬리는_제외한다() {
+    void 첨부는_기사영역만_수집하고_fidx와_파일명을_뽑으며_하단_목록_링크와_크기꼬리는_제외한다() {
         final Document document = Jsoup.parse(READ_HTML, "https://hisnet.handong.edu");
 
         final NoticeResponseDto result = parser.parseDetail(document, "175753");
 
-        assertThat(result.files()).containsExactly("첨부_안내문.pdf");
+        assertThat(result.files())
+                .extracting(AttachmentResponseDto::index, AttachmentResponseDto::name)
+                .containsExactly(tuple(1, "첨부_안내문.pdf"));
     }
 
     /**

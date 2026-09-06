@@ -2,7 +2,9 @@ package com.seohamin.hisnetmobile.domain.notice.controller;
 
 import com.seohamin.hisnetmobile.domain.notice.dto.NoticeListResponseDto;
 import com.seohamin.hisnetmobile.domain.notice.dto.NoticeResponseDto;
+import com.seohamin.hisnetmobile.domain.notice.service.NoticeAttachmentService;
 import com.seohamin.hisnetmobile.domain.notice.service.NoticeService;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 public class NoticeController {
 
     private final NoticeService noticeService;
+    private final NoticeAttachmentService noticeAttachmentService;
 
     // 일반공지 리스트 조회 API (page: 1부터, 기본 1)
     @GetMapping("/general")
@@ -34,6 +37,19 @@ public class NoticeController {
     ) {
 
         return ResponseEntity.ok(noticeService.getGeneralNotice(userDetails, id));
+    }
+
+    // 일반공지 첨부파일 다운로드 API (index: files[].index, name: 선택 — files[].name 을 넘기면 파일명으로 사용)
+    @GetMapping("/general/{id}/attachments/{index}")
+    public void downloadGeneralAttachment(
+            @AuthenticationPrincipal final UserDetails userDetails,
+            @PathVariable final String id,
+            @PathVariable final int index,
+            @RequestParam(required = false) final String name,
+            final HttpServletResponse response
+    ) {
+
+        noticeAttachmentService.downloadGeneralAttachment(userDetails, id, index, name, response);
     }
 
     // 학부 공지 리스트 조회 API (page: 1부터, 기본 1)
@@ -56,6 +72,20 @@ public class NoticeController {
     ) {
 
         return ResponseEntity.ok(noticeService.getDepartmentNotice(userDetails, dept, id));
+    }
+
+    // 학부 공지 첨부파일 다운로드 API
+    @GetMapping("/department/{id}/attachments/{index}")
+    public void downloadDepartmentAttachment(
+            @AuthenticationPrincipal final UserDetails userDetails,
+            @PathVariable final String id,
+            @PathVariable final int index,
+            @RequestParam final String dept,
+            @RequestParam(required = false) final String name,
+            final HttpServletResponse response
+    ) {
+
+        noticeAttachmentService.downloadDepartmentAttachment(userDetails, dept, id, index, name, response);
     }
 
 }
