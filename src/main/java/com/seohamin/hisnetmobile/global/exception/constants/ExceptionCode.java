@@ -23,6 +23,7 @@ public enum ExceptionCode {
 
     NOTICE_PARSING_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "공지 페이지 파싱에 실패했습니다."),
     STUDENT_INFO_PARSING_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "학적 정보 페이지 파싱에 실패했습니다."),
+    MEAL_PARSING_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "식단 페이지 파싱에 실패했습니다."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버에서 에러가 발생했습니다.")
     ;
 

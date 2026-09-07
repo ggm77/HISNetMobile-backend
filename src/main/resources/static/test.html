@@ -66,7 +66,7 @@
 <body>
 <div class="wrap">
   <h1>HisnetMobile API 테스트</h1>
-  <div class="sub">세션 로그인 · 학적 기본정보 · 공지(일반/학부) 목록·상세 확인용</div>
+  <div class="sub">세션 로그인 · 학적 기본정보 · 공지(일반/학부) 목록·상세 · 식단표 확인용</div>
 
   <div class="card">
     <h2>1. 로그인</h2>
@@ -138,6 +138,16 @@
       <div id="detailBody"></div>
       <details id="detailJsonWrap" hidden><summary>상세 응답 JSON</summary><pre id="detailJson"></pre></details>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>4. 식단표 (인증 불필요)</h2>
+    <div class="row">
+      <button id="btnMeals" class="primary">GET /api/v1/meals</button>
+    </div>
+    <div id="mealStatus" class="status"></div>
+    <div id="mealTable"></div>
+    <details id="mealJsonWrap" hidden><summary>응답 JSON</summary><pre id="mealJson"></pre></details>
   </div>
 </div>
 
@@ -416,6 +426,45 @@
   });
   $("pageNext").addEventListener("click", function () {
     if (currentList) loadList(currentList.page + 1);
+  });
+
+  // ---------- 4. 식단표 ----------
+  function renderMeals(data) {
+    const cafeterias = (data && data.cafeterias) || [];
+    if (!cafeterias.length) { $("mealTable").innerHTML = "<div class='empty'>식단 없음</div>"; return; }
+    const html = cafeterias.map(function (c) {
+      const corners = (c.corners || []).map(function (corner) {
+        const meals = (corner.meals || []).map(function (m) {
+          const items = (m.items || []).map(function (it) { return esc(it); }).join("<br>");
+          return "<tr><th>" + esc(m.slot) + "</th><td>" + (items || "<span class='empty'>(없음)</span>") + "</td></tr>";
+        }).join("");
+        const title = corner.name === c.name ? "" : "<div style='font-weight:600;margin:8px 0 2px'>" + esc(corner.name) + "</div>";
+        return title + "<table class='kv'>" + meals + "</table>";
+      }).join("");
+      return "<div style='margin-top:12px'><div style='font-size:14px;font-weight:700'>" + esc(c.name)
+        + " <span class='cfg'>(" + esc(c.id) + ")</span></div>" + corners + "</div>";
+    }).join("");
+    $("mealTable").innerHTML = "<div class='cfg'>기준일: " + esc(data.date || "") + "</div>" + html;
+  }
+
+  $("btnMeals").addEventListener("click", async function () {
+    busy(true);
+    setStatus($("mealStatus"), "조회 중...");
+    $("mealTable").innerHTML = "";
+    $("mealJsonWrap").hidden = true;
+    try {
+      const r = await call("/api/v1/meals", { method: "GET" });
+      $("mealJson").textContent = JSON.stringify(r.body, null, 2);
+      $("mealJsonWrap").hidden = false;
+      if (!r.ok) {
+        const msg = r.body && r.body.message ? r.body.message : JSON.stringify(r.body);
+        setStatus($("mealStatus"), "실패 (" + r.status + ") — " + msg, "err");
+        return;
+      }
+      renderMeals(r.body || {});
+      setStatus($("mealStatus"), "조회 성공 (200).", "ok");
+    } catch (e) { setStatus($("mealStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
   });
 })();
 </script>

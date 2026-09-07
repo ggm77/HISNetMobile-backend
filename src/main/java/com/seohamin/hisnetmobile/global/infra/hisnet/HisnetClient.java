@@ -65,6 +65,43 @@ public class HisnetClient {
     }
 
     /**
+     * 인증이 필요 없는 원본 페이지(로그인 페이지 등)를 GET 해 EUC-KR 로 디코딩한 Document 를 반환하는 메서드.
+     * <p>
+     * 세션 쿠키를 싣지 않으며, {@link #verifyAuthenticated}(세션 만료 판별)도 돌리지 않는다.
+     * 로그인 페이지({@code /login/login.php})처럼 미인증 상태에서도 항상 200 + 정상 HTML 을 주는
+     * 공개 페이지 전용이다. (로그인 페이지에는 당일 식단표가 서버사이드로 렌더링돼 들어있다.)
+     * @param path 원본 기준 경로 + 쿼리스트링 (예: /login/login.php)
+     * @return 파싱된 Document
+     */
+    public Document getPublic(final String path) {
+        try {
+            final byte[] body = hisnetRestClient.get()
+                    .uri(path)
+                    .exchange((clientRequest, clientResponse) -> {
+                        final HttpStatusCode status = clientResponse.getStatusCode();
+                        if (!status.is2xxSuccessful()) {
+                            log.warn("[HISNet 공개 페이지 비정상 응답] path={}, status={}", path, status.value());
+                            throw new CustomException(ExceptionCode.HISNET_REQUEST_FAILED);
+                        }
+
+                        final byte[] responseBody = clientResponse.bodyTo(byte[].class);
+                        if (responseBody == null || responseBody.length == 0) {
+                            throw new CustomException(ExceptionCode.HISNET_REQUEST_FAILED);
+                        }
+
+                        return responseBody;
+                    });
+
+            return Jsoup.parse(new String(body, HISNET_CHARSET), baseUrl);
+        } catch (final CustomException ex) {
+            throw ex;
+        } catch (final Exception ex) {
+            log.error("[HISNet 공개 페이지 요청 실패] path={}", path, ex);
+            throw new CustomException(ExceptionCode.HISNET_REQUEST_FAILED, ex);
+        }
+    }
+
+    /**
      * 매핑된 세션이 아직 원본에서 인증 상태인지 확인하는 메서드.
      * 스텁 응답이면 {@link ExceptionCode#SESSION_EXPIRED} 를 던진다.
      * @param session 확인할 세션 쿠키

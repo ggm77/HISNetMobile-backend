@@ -90,6 +90,9 @@ public class SecurityConfig {
                         // 로그인/로그아웃 (시큐리티 필터가 가로챔)
                         .requestMatchers(loginUrl, logoutUrl).permitAll()
 
+                        // 식단표는 원본 로그인 페이지에 공개로 실려오는 데이터라 미인증 허용
+                        .requestMatchers(HttpMethod.GET, "/api/v1/meals").permitAll()
+
                         // 그 외 모든 API 는 인증 필요
                         .requestMatchers("/api/**").authenticated()
 

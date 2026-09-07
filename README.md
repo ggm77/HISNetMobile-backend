@@ -47,7 +47,7 @@ HISNet은 공개 API가 없고 전 페이지가 EUC-KR 레거시 HTML이다. 이
 
 ## API
 
-베이스 `/api/v1`. 세션 쿠키(`JSESSIONID`) 기반이며 로그인/로그아웃/Swagger 를 제외한 `/api/**` 는 모두 인증 필요.
+베이스 `/api/v1`. 세션 쿠키(`JSESSIONID`) 기반이며 로그인/로그아웃/식단표/Swagger 를 제외한 `/api/**` 는 모두 인증 필요.
 
 | Method | Path | 설명 |
 |---|---|---|
@@ -55,6 +55,7 @@ HISNet은 공개 API가 없고 전 페이지가 EUC-KR 레거시 HTML이다. 이
 | `POST` | `/auth/logout` | 세션 폐기. 204 |
 | `GET`  | `/auth/me` | 로그인 사용자 확인 |
 | `GET`  | `/students/me` | 학적 기본정보 |
+| `GET`  | `/meals` | 당일 식단표 (인증 불필요). 식당→코너→끼니 트리 |
 | `GET`  | `/notices/general?page={n}` | 일반공지 목록 (페이지네이션) |
 | `GET`  | `/notices/general/{id}` | 일반공지 상세 |
 | `GET`  | `/notices/general/{id}/attachments/{index}` | 일반공지 첨부 다운로드 (스트리밍) |
@@ -75,6 +76,10 @@ domain/
     service/NoticeParser             list.php / read.php HTML 파싱
     service/NoticeAttachmentService  down.php 스트리밍 릴레이
     constant/Board                  게시판 코드 상수·검증
+  meal/       당일 식단표 (인증 불필요 — login.php 에 공개로 실려온다)
+    service/MealService             login.php 공개 GET 릴레이
+    service/MealParser              식단 위젯(#tr_box_11) 파싱 → 식당/코너/끼니 트리
+    constant/Cafeteria             식당 탭(패널) 상수
 global/
   config/SecurityConfig             세션 로그인, CORS, 401 정책
   config/HisnetRestClientConfig     원본 릴레이 전용 RestClient
