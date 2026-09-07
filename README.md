@@ -56,6 +56,7 @@ HISNet은 공개 API가 없고 전 페이지가 EUC-KR 레거시 HTML이다. 이
 | `GET`  | `/auth/me` | 로그인 사용자 확인 |
 | `GET`  | `/students/me` | 학적 기본정보 |
 | `GET`  | `/timetable` | 내 시간표 (현재 학기). 과목→슬롯(요일·교시·강의실) |
+| `GET`  | `/grades` | 내 성적. 총 누적 요약 + 학기별(과목별 등급 포함) |
 | `GET`  | `/meals` | 당일 식단표 (인증 불필요). 식당→코너→끼니 트리 |
 | `GET`  | `/notices/general?page={n}` | 일반공지 목록 (페이지네이션) |
 | `GET`  | `/notices/general/{id}` | 일반공지 상세 |
@@ -73,6 +74,7 @@ domain/
   auth/       세션 로그인 (컨트롤러는 문서화용, 실제 처리는 Security 필터)
   student/    학적 기본정보 조회 + 파서
   timetable/  내 시간표 조회 + 파서 (HLES110M.php 14교시×요일 격자 → 과목 단위로 병합)
+  grade/      전체 성적 조회 + 파서 (HREC110M.php 누적 요약 + 학기별 상세 div → 결합)
   notice/     공지 목록/상세/첨부
     service/NoticeService            목록·상세 릴레이
     service/NoticeParser             list.php / read.php HTML 파싱

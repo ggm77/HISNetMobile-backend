@@ -66,7 +66,7 @@
 <body>
 <div class="wrap">
   <h1>HisnetMobile API 테스트</h1>
-  <div class="sub">세션 로그인 · 학적 기본정보 · 공지(일반/학부) 목록·상세 · 식단표 · 시간표 확인용</div>
+  <div class="sub">세션 로그인 · 학적 기본정보 · 공지(일반/학부) 목록·상세 · 식단표 · 시간표 · 성적 확인용</div>
 
   <div class="card">
     <h2>1. 로그인</h2>
@@ -158,6 +158,17 @@
     <div id="timetableStatus" class="status"></div>
     <div id="timetableTable" class="scroll"></div>
     <details id="timetableJsonWrap" hidden><summary>응답 JSON</summary><pre id="timetableJson"></pre></details>
+  </div>
+
+  <div class="card">
+    <h2>6. 성적</h2>
+    <div class="row">
+      <button id="btnGrades" class="primary">GET /api/v1/grades</button>
+    </div>
+    <div id="gradeStatus" class="status"></div>
+    <div id="gradeSummary" class="scroll"></div>
+    <div id="gradeSemesters" class="scroll"></div>
+    <details id="gradeJsonWrap" hidden><summary>응답 JSON</summary><pre id="gradeJson"></pre></details>
   </div>
 </div>
 
@@ -534,6 +545,63 @@
       renderTimetable(r.body || {});
       setStatus($("timetableStatus"), "조회 성공 (200). " + ((r.body.courses || []).length) + "과목.", "ok");
     } catch (e) { setStatus($("timetableStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
+  });
+
+  // ---------- 6. 성적 ----------
+  function renderGrades(data) {
+    const s = data.summary || {};
+    const num = function (v) { return (v === null || v === undefined) ? "-" : v; };
+    const topEntries = [
+      ["평점평균", num(s.gpa)], ["전공평점평균", num(s.majorGpa)],
+      ["취득/신청학점", num(s.earnedCredits) + " / " + num(s.requestedCredits)],
+      ["환산점수", num(s.conversionScore)], ["평점계", num(s.totalGradePoints)],
+      ["PF이수학점", num(s.pfCredits)]
+    ];
+    let byType = "";
+    if (s.creditsByType && Object.keys(s.creditsByType).length) {
+      byType = "<tr><th>이수구분별 학점</th><td>" + Object.keys(s.creditsByType).map(function (k) {
+        return esc(k) + " " + s.creditsByType[k];
+      }).join(" · ") + "</td></tr>";
+    }
+    renderKv($("gradeSummary"), topEntries);
+    if (byType) $("gradeSummary").querySelector("table").insertAdjacentHTML("beforeend", byType);
+
+    const sems = data.semesters || [];
+    $("gradeSemesters").innerHTML = sems.map(function (sem) {
+      const head = "<tr><th>과목코드</th><th>과목명</th><th>이수구분</th><th>학점</th><th>성적</th><th>평점</th></tr>";
+      const rows = (sem.courses || []).map(function (c) {
+        return "<tr><td class='num'>" + cell(c.code) + "</td><td>" + cell(c.name) + "</td>"
+          + "<td class='center'>" + cell(c.type) + "</td><td class='num'>" + cell(c.credits) + "</td>"
+          + "<td class='center'>" + cell(c.grade) + (c.retake ? " <span class='badge'>재이수</span>" : "") + "</td>"
+          + "<td class='num'>" + cell(c.gradePoints) + "</td></tr>";
+      }).join("");
+      return "<div style='margin-top:14px'><div style='font-weight:700'>" + sem.year + "-" + sem.term
+        + " <span class='cfg'>신청 " + num(sem.requestedCredits) + " · 취득 " + num(sem.earnedCredits)
+        + " · 평점 " + num(sem.gpa) + "</span></div>"
+        + (rows ? "<table class='list'>" + head + rows + "</table>" : "<div class='empty'>과목 상세 없음</div>")
+        + "</div>";
+    }).join("");
+  }
+
+  $("btnGrades").addEventListener("click", async function () {
+    busy(true);
+    setStatus($("gradeStatus"), "조회 중...");
+    $("gradeSummary").innerHTML = "";
+    $("gradeSemesters").innerHTML = "";
+    $("gradeJsonWrap").hidden = true;
+    try {
+      const r = await call("/api/v1/grades", { method: "GET" });
+      $("gradeJson").textContent = JSON.stringify(r.body, null, 2);
+      $("gradeJsonWrap").hidden = false;
+      if (!r.ok) {
+        const msg = r.body && r.body.message ? r.body.message : JSON.stringify(r.body);
+        setStatus($("gradeStatus"), "실패 (" + r.status + ") — " + msg, "err");
+        return;
+      }
+      renderGrades(r.body || {});
+      setStatus($("gradeStatus"), "조회 성공 (200). " + ((r.body.semesters || []).length) + "개 학기.", "ok");
+    } catch (e) { setStatus($("gradeStatus"), "요청 실패: " + e.message, "err"); }
     finally { busy(false); }
   });
 })();
