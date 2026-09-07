@@ -66,7 +66,7 @@
 <body>
 <div class="wrap">
   <h1>HisnetMobile API 테스트</h1>
-  <div class="sub">세션 로그인 · 학적 기본정보 · 공지(일반/학부) 목록·상세 · 식단표 확인용</div>
+  <div class="sub">세션 로그인 · 학적 기본정보 · 공지(일반/학부) 목록·상세 · 식단표 · 시간표 확인용</div>
 
   <div class="card">
     <h2>1. 로그인</h2>
@@ -148,6 +148,16 @@
     <div id="mealStatus" class="status"></div>
     <div id="mealTable"></div>
     <details id="mealJsonWrap" hidden><summary>응답 JSON</summary><pre id="mealJson"></pre></details>
+  </div>
+
+  <div class="card">
+    <h2>5. 시간표</h2>
+    <div class="row">
+      <button id="btnTimetable" class="primary">GET /api/v1/timetable</button>
+    </div>
+    <div id="timetableStatus" class="status"></div>
+    <div id="timetableTable" class="scroll"></div>
+    <details id="timetableJsonWrap" hidden><summary>응답 JSON</summary><pre id="timetableJson"></pre></details>
   </div>
 </div>
 
@@ -464,6 +474,66 @@
       renderMeals(r.body || {});
       setStatus($("mealStatus"), "조회 성공 (200).", "ok");
     } catch (e) { setStatus($("mealStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
+  });
+
+  // ---------- 5. 시간표 ----------
+  function renderTimetable(data) {
+    const courses = (data && data.courses) || [];
+    if (!courses.length) { $("timetableTable").innerHTML = "<div class='empty'>수강 과목 없음</div>"; return; }
+    const days = ["월", "화", "수", "목", "금", "토"];
+    let maxP = 1;
+    courses.forEach(function (c) {
+      (c.slots || []).forEach(function (s) { if (s.endPeriod > maxP) maxP = s.endPeriod; });
+    });
+    const grid = {}; // "period,dayIdx" -> label
+    courses.forEach(function (c) {
+      const label = esc(c.name) + (c.section ? " (" + esc(c.section) + ")" : "");
+      (c.slots || []).forEach(function (s) {
+        const di = days.indexOf(s.day);
+        if (di < 0) return;
+        for (let p = s.startPeriod; p <= s.endPeriod; p++) {
+          grid[p + "," + di] = label + (s.room ? "<br><span class='cfg'>" + esc(s.room) + "</span>" : "");
+        }
+      });
+    });
+    let head = "<tr><th>교시</th>" + days.map(function (d) { return "<th>" + d + "</th>"; }).join("") + "</tr>";
+    let rows = "";
+    for (let p = 1; p <= maxP; p++) {
+      rows += "<tr><td class='center'>" + p + "</td>"
+        + days.map(function (_, di) { return "<td>" + (grid[p + "," + di] || "") + "</td>"; }).join("")
+        + "</tr>";
+    }
+    const list = courses.map(function (c) {
+      const slots = (c.slots || []).map(function (s) {
+        const per = s.startPeriod === s.endPeriod ? s.startPeriod + "교시" : s.startPeriod + "-" + s.endPeriod + "교시";
+        return esc(s.day) + " " + per + (s.room ? " " + esc(s.room) : "");
+      }).join(", ");
+      return "<tr><th>" + esc(c.name) + (c.section ? " (" + esc(c.section) + ")" : "")
+        + "</th><td>" + esc(c.professor || "") + "<br><span class='cfg'>" + slots + "</span></td></tr>";
+    }).join("");
+    $("timetableTable").innerHTML =
+      "<table class='list'>" + head + rows + "</table>"
+      + "<table class='kv' style='margin-top:12px'>" + list + "</table>";
+  }
+
+  $("btnTimetable").addEventListener("click", async function () {
+    busy(true);
+    setStatus($("timetableStatus"), "조회 중...");
+    $("timetableTable").innerHTML = "";
+    $("timetableJsonWrap").hidden = true;
+    try {
+      const r = await call("/api/v1/timetable", { method: "GET" });
+      $("timetableJson").textContent = JSON.stringify(r.body, null, 2);
+      $("timetableJsonWrap").hidden = false;
+      if (!r.ok) {
+        const msg = r.body && r.body.message ? r.body.message : JSON.stringify(r.body);
+        setStatus($("timetableStatus"), "실패 (" + r.status + ") — " + msg, "err");
+        return;
+      }
+      renderTimetable(r.body || {});
+      setStatus($("timetableStatus"), "조회 성공 (200). " + ((r.body.courses || []).length) + "과목.", "ok");
+    } catch (e) { setStatus($("timetableStatus"), "요청 실패: " + e.message, "err"); }
     finally { busy(false); }
   });
 })();
