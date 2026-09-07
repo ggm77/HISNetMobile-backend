@@ -10,6 +10,7 @@ public enum ExceptionCode {
 
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "필요한 값이 비어있습니다."),
     INVALID_NOTICE_ID(HttpStatus.BAD_REQUEST, "올바르지 않은 공지 ID입니다."),
+    INVALID_NOTICE_BOARD(HttpStatus.BAD_REQUEST, "올바르지 않은 공지 게시판입니다."),
     INVALID_DEPARTMENT(HttpStatus.BAD_REQUEST, "올바르지 않은 학부 게시판 코드입니다."),
     INVALID_ATTACHMENT_INDEX(HttpStatus.BAD_REQUEST, "올바르지 않은 첨부파일 번호입니다."),
 

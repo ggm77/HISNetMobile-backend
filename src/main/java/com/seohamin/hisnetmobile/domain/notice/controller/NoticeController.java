@@ -1,5 +1,6 @@
 package com.seohamin.hisnetmobile.domain.notice.controller;
 
+import com.seohamin.hisnetmobile.domain.notice.constant.NoticeBoard;
 import com.seohamin.hisnetmobile.domain.notice.dto.NoticeListResponseDto;
 import com.seohamin.hisnetmobile.domain.notice.dto.NoticeResponseDto;
 import com.seohamin.hisnetmobile.domain.notice.service.NoticeAttachmentService;
@@ -19,37 +20,43 @@ public class NoticeController {
     private final NoticeService noticeService;
     private final NoticeAttachmentService noticeAttachmentService;
 
-    // 일반공지 리스트 조회 API (page: 1부터, 기본 1)
-    @GetMapping("/general")
-    public ResponseEntity<NoticeListResponseDto> getGeneralNoticeList(
+    // 고정 게시판(general / scholarship / dormitory) 리스트 조회 API (page: 1부터, 기본 1)
+    @GetMapping("/{board}")
+    public ResponseEntity<NoticeListResponseDto> getNoticeList(
             @AuthenticationPrincipal final UserDetails userDetails,
+            @PathVariable final String board,
             @RequestParam(defaultValue = "1") final int page
     ) {
 
-        return ResponseEntity.ok(noticeService.getGeneralNoticeList(userDetails, page));
+        return ResponseEntity.ok(
+                noticeService.getFixedBoardNoticeList(userDetails, NoticeBoard.from(board), page));
     }
 
-    // 특정 일반공지 조회 API
-    @GetMapping("/general/{id}")
-    public ResponseEntity<NoticeResponseDto> getGeneralNotice(
+    // 고정 게시판 특정 공지 조회 API
+    @GetMapping("/{board}/{id}")
+    public ResponseEntity<NoticeResponseDto> getNotice(
             @AuthenticationPrincipal final UserDetails userDetails,
+            @PathVariable final String board,
             @PathVariable final String id
     ) {
 
-        return ResponseEntity.ok(noticeService.getGeneralNotice(userDetails, id));
+        return ResponseEntity.ok(
+                noticeService.getFixedBoardNotice(userDetails, NoticeBoard.from(board), id));
     }
 
-    // 일반공지 첨부파일 다운로드 API (index: files[].index, name: 선택 — files[].name 을 넘기면 파일명으로 사용)
-    @GetMapping("/general/{id}/attachments/{index}")
-    public void downloadGeneralAttachment(
+    // 고정 게시판 첨부파일 다운로드 API (index: files[].index, name: 선택 — files[].name 을 넘기면 파일명으로 사용)
+    @GetMapping("/{board}/{id}/attachments/{index}")
+    public void downloadAttachment(
             @AuthenticationPrincipal final UserDetails userDetails,
+            @PathVariable final String board,
             @PathVariable final String id,
             @PathVariable final int index,
             @RequestParam(required = false) final String name,
             final HttpServletResponse response
     ) {
 
-        noticeAttachmentService.downloadGeneralAttachment(userDetails, id, index, name, response);
+        noticeAttachmentService.downloadFixedBoardAttachment(
+                userDetails, NoticeBoard.from(board), id, index, name, response);
     }
 
     // 학부 공지 리스트 조회 API (page: 1부터, 기본 1)

@@ -1,6 +1,7 @@
 package com.seohamin.hisnetmobile.domain.notice.service;
 
 import com.seohamin.hisnetmobile.domain.notice.constant.Board;
+import com.seohamin.hisnetmobile.domain.notice.constant.NoticeBoard;
 import com.seohamin.hisnetmobile.global.exception.CustomException;
 import com.seohamin.hisnetmobile.global.exception.constants.ExceptionCode;
 import com.seohamin.hisnetmobile.global.infra.hisnet.HisnetClient;
@@ -68,16 +69,17 @@ public class NoticeAttachmentService {
     private final HisnetClient hisnetClient;
 
     /**
-     * 일반공지 첨부파일을 다운로드하는 메서드.
+     * 고정 게시판(일반/장학/생활관) 첨부파일을 다운로드하는 메서드.
      */
-    public void downloadGeneralAttachment(
+    public void downloadFixedBoardAttachment(
             final UserDetails userDetails,
+            final NoticeBoard board,
             final String noticeId,
             final int index,
             final String nameOverride,
             final HttpServletResponse response
     ) {
-        relay(userDetails, Board.GENERAL, noticeId, index, nameOverride, response);
+        relay(userDetails, board.code(), noticeId, index, nameOverride, response);
     }
 
     /**

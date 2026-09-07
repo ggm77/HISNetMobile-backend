@@ -1,6 +1,7 @@
 package com.seohamin.hisnetmobile.domain.notice.service;
 
 import com.seohamin.hisnetmobile.domain.notice.constant.Board;
+import com.seohamin.hisnetmobile.domain.notice.constant.NoticeBoard;
 import com.seohamin.hisnetmobile.domain.notice.dto.NoticeListResponseDto;
 import com.seohamin.hisnetmobile.domain.notice.dto.NoticeResponseDto;
 import com.seohamin.hisnetmobile.domain.notice.dto.SimpleNoticeResponseDto;
@@ -39,31 +40,35 @@ public class NoticeService {
     private final NoticeParser noticeParser;
 
     /**
-     * 일반공지 목록을 조회하는 메서드.
+     * 고정 게시판(일반/장학/생활관) 목록을 조회하는 메서드.
      * @param userDetails 인증 주체 (원본 세션 보유)
+     * @param board 고정 게시판
      * @param page 조회할 페이지 (1부터, 1 미만은 1로 보정)
      * @return 공지 요약 리스트 (+ 페이지 정보)
      */
-    public NoticeListResponseDto getGeneralNoticeList(
+    public NoticeListResponseDto getFixedBoardNoticeList(
             final UserDetails userDetails,
+            final NoticeBoard board,
             final int page
     ) {
 
-        return getNoticeList(userDetails, Board.GENERAL, page);
+        return getNoticeList(userDetails, board.code(), page);
     }
 
     /**
-     * 특정 일반공지 본문을 조회하는 메서드.
+     * 고정 게시판의 특정 공지 본문을 조회하는 메서드.
      * @param userDetails 인증 주체 (원본 세션 보유)
+     * @param board 고정 게시판
      * @param noticeId 글 ID
      * @return 공지 상세
      */
-    public NoticeResponseDto getGeneralNotice(
+    public NoticeResponseDto getFixedBoardNotice(
             final UserDetails userDetails,
+            final NoticeBoard board,
             final String noticeId
     ) {
 
-        return getNotice(userDetails, Board.GENERAL, noticeId);
+        return getNotice(userDetails, board.code(), noticeId);
     }
 
     /**

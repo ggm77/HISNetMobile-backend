@@ -59,9 +59,9 @@ HISNet은 공개 API가 없고 전 페이지가 EUC-KR 레거시 HTML이다. 이
 | `GET`  | `/grades` | 내 성적. 총 누적 요약 + 학기별(과목별 등급 포함) |
 | `GET`  | `/graduation` | 내 졸업심사 결과. 항목별 판정 + 최종 졸업판정 |
 | `GET`  | `/meals` | 당일 식단표 (인증 불필요). 식당→코너→끼니 트리 |
-| `GET`  | `/notices/general?page={n}` | 일반공지 목록 (페이지네이션) |
-| `GET`  | `/notices/general/{id}` | 일반공지 상세 |
-| `GET`  | `/notices/general/{id}/attachments/{index}` | 일반공지 첨부 다운로드 (스트리밍) |
+| `GET`  | `/notices/{board}?page={n}` | 고정 게시판 공지 목록 (`board`: `general` 일반 / `scholarship` 장학 / `dormitory` 생활관) |
+| `GET`  | `/notices/{board}/{id}` | 고정 게시판 공지 상세 |
+| `GET`  | `/notices/{board}/{id}/attachments/{index}` | 고정 게시판 공지 첨부 다운로드 (스트리밍) |
 | `GET`  | `/notices/department?dept={code}&page={n}` | 학부공지 목록 |
 | `GET`  | `/notices/department/{id}?dept={code}` | 학부공지 상세 |
 | `GET`  | `/notices/department/{id}/attachments/{index}?dept={code}` | 학부공지 첨부 다운로드 |
@@ -81,7 +81,8 @@ domain/
     service/NoticeService            목록·상세 릴레이
     service/NoticeParser             list.php / read.php HTML 파싱
     service/NoticeAttachmentService  down.php 스트리밍 릴레이
-    constant/Board                  게시판 코드 상수·검증
+    constant/NoticeBoard            고정 게시판(일반/장학/생활관) 슬러그↔Board 코드
+    constant/Board                  학부공지 Board 코드 형식 검증
   meal/       당일 식단표 (인증 불필요 — login.php 에 공개로 실려온다)
     service/MealService             login.php 공개 GET 릴레이
     service/MealParser              식단 위젯(#tr_box_11) 파싱 → 식당/코너/끼니 트리

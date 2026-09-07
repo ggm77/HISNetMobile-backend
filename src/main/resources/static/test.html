@@ -102,8 +102,10 @@
   <div class="card">
     <h2>3. 공지 조회</h2>
     <div class="tabbar">
-      <button id="tabGeneral" class="active" data-mode="general">일반공지</button>
-      <button id="tabDept" data-mode="department">학부공지</button>
+      <button class="tab active" data-mode="general">일반공지</button>
+      <button class="tab" data-mode="scholarship">장학공지</button>
+      <button class="tab" data-mode="dormitory">생활관공지</button>
+      <button class="tab" data-mode="department">학부공지</button>
     </div>
 
     <div class="inline" style="margin-top:12px">
@@ -353,24 +355,26 @@
   // ---------- 3. 공지 ----------
   function setMode(next) {
     mode = next;
-    $("tabGeneral").classList.toggle("active", mode === "general");
-    $("tabDept").classList.toggle("active", mode === "department");
+    document.querySelectorAll(".tabbar .tab").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-mode") === mode);
+    });
     $("deptWrap").hidden = mode !== "department";
   }
-  $("tabGeneral").addEventListener("click", function () { setMode("general"); });
-  $("tabDept").addEventListener("click", function () { setMode("department"); });
+  document.querySelectorAll(".tabbar .tab").forEach(function (b) {
+    b.addEventListener("click", function () { setMode(b.getAttribute("data-mode")); });
+  });
 
   function listPath(page) {
     if (mode === "department") {
       return "/api/v1/notices/department?dept=" + encodeURIComponent($("dept").value) + "&page=" + page;
     }
-    return "/api/v1/notices/general?page=" + page;
+    return "/api/v1/notices/" + mode + "?page=" + page;
   }
   function detailPath(id) {
     if (mode === "department") {
       return "/api/v1/notices/department/" + encodeURIComponent(id) + "?dept=" + encodeURIComponent($("dept").value);
     }
-    return "/api/v1/notices/general/" + encodeURIComponent(id);
+    return "/api/v1/notices/" + mode + "/" + encodeURIComponent(id);
   }
 
   async function loadList(page) {
