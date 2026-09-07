@@ -66,7 +66,7 @@
 <body>
 <div class="wrap">
   <h1>HisnetMobile API 테스트</h1>
-  <div class="sub">세션 로그인 · 학적 기본정보 · 공지(일반/학부) 목록·상세 · 식단표 · 시간표 · 성적 확인용</div>
+  <div class="sub">세션 로그인 · 학적 기본정보 · 공지(일반/학부) 목록·상세 · 식단표 · 시간표 · 성적 · 졸업심사 확인용</div>
 
   <div class="card">
     <h2>1. 로그인</h2>
@@ -169,6 +169,16 @@
     <div id="gradeSummary" class="scroll"></div>
     <div id="gradeSemesters" class="scroll"></div>
     <details id="gradeJsonWrap" hidden><summary>응답 JSON</summary><pre id="gradeJson"></pre></details>
+  </div>
+
+  <div class="card">
+    <h2>7. 졸업심사 결과</h2>
+    <div class="row">
+      <button id="btnGraduation" class="primary">GET /api/v1/graduation</button>
+    </div>
+    <div id="graduationStatus" class="status"></div>
+    <div id="graduationBody" class="scroll"></div>
+    <details id="graduationJsonWrap" hidden><summary>응답 JSON</summary><pre id="graduationJson"></pre></details>
   </div>
 </div>
 
@@ -602,6 +612,59 @@
       renderGrades(r.body || {});
       setStatus($("gradeStatus"), "조회 성공 (200). " + ((r.body.semesters || []).length) + "개 학기.", "ok");
     } catch (e) { setStatus($("gradeStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
+  });
+
+  // ---------- 7. 졸업심사 ----------
+  function renderGraduation(d) {
+    if (!d.available) {
+      $("graduationBody").innerHTML = "<div class='empty'>원본에서 조회 불가 (available=false)</div>"
+        + ((d.notices || []).length ? "<ul>" + d.notices.map(function (n) { return "<li>" + esc(n) + "</li>"; }).join("") + "</ul>" : "");
+      return;
+    }
+    const st = d.student || {};
+    const verdictBadge = "<span class='badge' style='color:" + (d.finalVerdict === "졸업가능" ? "var(--ok)" : "var(--err)")
+      + ";border-color:currentColor'>" + esc(d.finalVerdict || "-") + "</span>";
+    let html = "<div style='font-size:14px;font-weight:700;margin-bottom:6px'>최종 졸업판정: " + verdictBadge
+      + " <span class='cfg'>" + esc(d.certificationType || "") + " · " + (d.requiredCredits || "?") + "학점 기준</span></div>";
+    if ((d.notices || []).length) {
+      html += "<ul class='cfg' style='margin:4px 0 10px'>" + d.notices.map(function (n) { return "<li>" + esc(n) + "</li>"; }).join("") + "</ul>";
+    }
+    html += "<table class='kv'>"
+      + [["학부", st.department], ["이름", st.name], ["학번", st.studentNo], ["학적", st.academicStatus],
+         ["등록학기", st.registeredTerms], ["전공", st.major], ["부전공", st.minor], ["부가전공", st.subMajor]]
+        .map(function (e) { return "<tr><th>" + e[0] + "</th><td>" + cell(e[1]) + "</td></tr>"; }).join("")
+      + "</table>";
+    const rows = (d.criteria || []).map(function (c) {
+      const ok = c.verdict === "합격";
+      return "<tr><td>" + cell(c.category) + "</td><td class='center'>" + cell(c.standard) + "</td>"
+        + "<td class='center'>" + cell(c.earned) + "</td>"
+        + "<td class='center' style='color:" + (ok ? "var(--ok)" : "var(--err)") + "'>" + cell(c.verdict) + "</td>"
+        + "<td>" + cell(c.note) + "</td></tr>";
+    }).join("");
+    html += "<table class='list' style='margin-top:12px'>"
+      + "<tr><th>구분</th><th>졸업기준(설계)</th><th>취득(설계)</th><th>판정</th><th>비고</th></tr>"
+      + rows + "</table>";
+    $("graduationBody").innerHTML = html;
+  }
+
+  $("btnGraduation").addEventListener("click", async function () {
+    busy(true);
+    setStatus($("graduationStatus"), "조회 중... (진입 페이지 → 결과 페이지, 2회 조회)");
+    $("graduationBody").innerHTML = "";
+    $("graduationJsonWrap").hidden = true;
+    try {
+      const r = await call("/api/v1/graduation", { method: "GET" });
+      $("graduationJson").textContent = JSON.stringify(r.body, null, 2);
+      $("graduationJsonWrap").hidden = false;
+      if (!r.ok) {
+        const msg = r.body && r.body.message ? r.body.message : JSON.stringify(r.body);
+        setStatus($("graduationStatus"), "실패 (" + r.status + ") — " + msg, "err");
+        return;
+      }
+      renderGraduation(r.body || {});
+      setStatus($("graduationStatus"), "조회 성공 (200)." + (r.body.available ? "" : " (available=false)"), "ok");
+    } catch (e) { setStatus($("graduationStatus"), "요청 실패: " + e.message, "err"); }
     finally { busy(false); }
   });
 })();
