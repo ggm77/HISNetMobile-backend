@@ -449,8 +449,15 @@
         ["조회", d.read], ["분류", d.category],
         ["첨부", attachmentsHtml(id, d.files)]
       ]);
-      $("detailBody").innerHTML = "<pre>" + esc(d.body || "") + "</pre>";
-      setStatus($("detailStatus"), "조회 성공 (200).", "ok");
+      const imgs = (d.images || []).map(function (u) {
+        return "<a href='" + esc(u) + "' target='_blank' rel='noopener'>"
+          + "<img src='" + esc(u) + "' style='max-width:100%;border:1px solid var(--border);border-radius:6px;margin-top:8px'></a>";
+      }).join("");
+      $("detailBody").innerHTML =
+        (d.body ? "<pre>" + esc(d.body) + "</pre>" : "<div class='empty'>(본문 텍스트 없음)</div>")
+        + (imgs ? "<div>" + imgs + "</div>" : "");
+      setStatus($("detailStatus"), "조회 성공 (200)."
+        + ((d.images || []).length ? " 본문이미지 " + d.images.length + "장." : ""), "ok");
     } catch (e) { setStatus($("detailStatus"), "요청 실패: " + e.message, "err"); }
     finally { busy(false); }
   }

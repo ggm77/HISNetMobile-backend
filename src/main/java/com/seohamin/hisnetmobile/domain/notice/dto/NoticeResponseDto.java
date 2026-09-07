@@ -12,5 +12,8 @@ public record NoticeResponseDto(
         LocalDate time,
         Integer read,
         String category,
-        String body
+        // 본문 평문. 이미지로만 이뤄진 공지는 빈 문자열일 수 있다 → images 를 함께 본다.
+        String body,
+        // 본문에 삽입된 이미지의 절대 URL (원본 HISNet 호스팅, 대부분 세션 없이 접근 가능). 없으면 빈 리스트.
+        List<String> images
 ) { }

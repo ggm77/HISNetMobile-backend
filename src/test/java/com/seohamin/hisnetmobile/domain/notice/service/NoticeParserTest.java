@@ -47,7 +47,11 @@ class NoticeParserTest {
             </tr></table></td></tr></table>
             <table><tr><td class="cls_PaddingL10">첨부 #1</td>
                 <td><a href="down.php?Board=NB0001&id=175753&fidx=1&filename=x">첨부_안내문.pdf (1,321,448 bytes)</a></td></tr></table>
-            <table><tr><td class="readText BoardContent">본문 내용입니다. 여러 줄.</td></tr></table>
+            <table><tr><td class="readText BoardContent">본문 내용입니다. 여러 줄.
+                <img src="/upload/report/abc123image001.jpg">
+                <img src="/myboard/images/icon_file.gif">
+                <img src="/upload/report/abc123image001.jpg">
+            </td></tr></table>
             <table>
               <tr class="listTitleBorder"><td>No</td><td>제목</td></tr>
               <tr class="tr_basic"><td class="listBody">99</td><td class="listBody"><a href="read.php?id=175700">다른 글</a></td>
@@ -71,6 +75,41 @@ class NoticeParserTest {
         assertThat(result.time()).isEqualTo(LocalDate.of(2026, 9, 6));
         assertThat(result.category()).isEqualTo("General Info(전체 공지)");
         assertThat(result.body()).contains("본문 내용입니다");
+    }
+
+    @Test
+    void 본문_이미지는_절대URL로_수집하고_레이아웃_아이콘과_중복은_제외한다() {
+        final Document document = Jsoup.parse(READ_HTML, "https://hisnet.handong.edu");
+
+        final NoticeResponseDto result = parser.parseDetail(document, "175753");
+
+        assertThat(result.images())
+                .containsExactly("https://hisnet.handong.edu/upload/report/abc123image001.jpg");
+    }
+
+    @Test
+    void 이미지로만_이뤄진_공지는_body가_비고_images로_내용을_노출한다() {
+        final String imageOnlyHtml = """
+                <html><head><title>HISNet</title></head><body>
+                <table><tr><td><table><tr>
+                  <td><div class="readText cls_Padding10"><span style="font-weight:bold">11345.</span>
+                      <span style="font-weight:bold">[생활관] 2학기 안내문</span></div></td>
+                  <td><div class="readText cls_Padding10"><span>Date</span><span>2026-09-05</span>
+                      <span>Writer</span><span>rc_office</span></div></td>
+                </tr></table></td></tr></table>
+                <table><tr><td class="readText BoardContent">
+                    <img src="/upload/report/03e39d42image001.jpg" width="1403">
+                </td></tr></table>
+                </body></html>
+                """;
+        final Document document = Jsoup.parse(imageOnlyHtml, "https://hisnet.handong.edu");
+
+        final NoticeResponseDto result = parser.parseDetail(document, "11345");
+
+        assertThat(result.subject()).isEqualTo("[생활관] 2학기 안내문");
+        assertThat(result.body()).isBlank();
+        assertThat(result.images())
+                .containsExactly("https://hisnet.handong.edu/upload/report/03e39d42image001.jpg");
     }
 
     @Test

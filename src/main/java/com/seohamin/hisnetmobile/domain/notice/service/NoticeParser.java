@@ -68,6 +68,11 @@ public class NoticeParser {
     private static final Pattern ATTACHMENT_HREF_PATTERN =
             Pattern.compile("(download|filedown|file_down|down\\.php|getfile|attach)", Pattern.CASE_INSENSITIVE);
 
+    // 본문 이미지: 에디터 업로드 이미지만 챙기고 레이아웃 아이콘/스페이서는 버린다
+    private static final Pattern LAYOUT_IMAGE_PATTERN = Pattern.compile(
+            "/(myboard/images|2012_images|images/templates)/|/(spacer|blank)\\.(gif|png)(\\?|$)",
+            Pattern.CASE_INSENSITIVE);
+
     // list.php 목록 표 헤더(No / Subject / Files / Writer / Date / Read)의 라벨 → 표준 컬럼 키
     private static final Map<String, String> LIST_COLUMN_LABELS = Map.ofEntries(
             Map.entry("no", "no"), Map.entry("번호", "no"),
@@ -212,8 +217,10 @@ public class NoticeParser {
         final LocalDate time = parseDate(firstNonBlank(header.get("date"), findValueByLabel(document, DATE_LABELS)));
         final String category = firstNonBlank(header.get("category"), findValueByLabel(document, CATEGORY_LABELS));
 
-        // 3) 본문
+        // 3) 본문 (텍스트) + 본문에 삽입된 이미지 URL
+        //    이미지로만 이뤄진 공지는 body 가 빈 문자열이라 images 로 내용을 노출한다
         final String body = extractBody(document);
+        final List<String> images = extractContentImages(document);
 
         // 4) 첨부파일 (하단 게시판 목록의 첨부 링크는 제외)
         final List<AttachmentResponseDto> files = extractAttachments(document);
@@ -226,8 +233,36 @@ public class NoticeParser {
                 time,
                 read,
                 category,
-                body
+                body,
+                images
         );
+    }
+
+    /**
+     * 본문 영역에 삽입된 이미지의 절대 URL 을 순서대로 수집하는 메서드.
+     * <p>
+     * 에디터 업로드 이미지(보통 {@code /upload/...})만 남기고, 레이아웃 아이콘/스페이서는 버린다.
+     * 원본 이미지는 대부분 세션 없이 접근 가능한 정적 파일이라 URL 을 그대로 내려준다.
+     */
+    private List<String> extractContentImages(final Document document) {
+        final Element bodyCell = document.selectFirst(DETAIL_BODY_SELECTOR);
+        final Element scope = bodyCell != null ? bodyCell : document;
+
+        final List<String> images = new ArrayList<>();
+        for (final Element img : scope.select("img[src]")) {
+            String url = img.absUrl("src");
+            if (url.isBlank()) {
+                url = img.attr("src").trim();
+            }
+            if (url.isBlank() || LAYOUT_IMAGE_PATTERN.matcher(url).find()) {
+                continue;
+            }
+            if (!images.contains(url)) {
+                images.add(url);
+            }
+        }
+
+        return images;
     }
 
     /**
@@ -512,14 +547,15 @@ public class NoticeParser {
     /**
      * 본문을 뽑는 메서드. {@code td.readText.BoardContent} 를 우선 보고,
      * 없으면 표 레이아웃에서 colspan 이 걸린 가장 긴 셀로 폴백한다.
+     * <p>
+     * BoardContent 셀이 존재하면 그 안이 비어 있어도(이미지로만 이뤄진 공지) 그 결과를 신뢰한다.
+     * 폴백은 BoardContent 셀 자체가 없는 구 레이아웃에서만 쓴다 — 안 그러면 페이지 레이아웃 셀
+     * 텍스트가 본문으로 잘못 잡힌다.
      */
     private String extractBody(final Document document) {
         final Element boardContent = document.selectFirst(DETAIL_BODY_SELECTOR);
         if (boardContent != null) {
-            final String text = boardContent.wholeText().trim();
-            if (!text.isEmpty()) {
-                return text;
-            }
+            return boardContent.wholeText().trim();
         }
 
         return document.select("td[colspan]").stream()

@@ -111,3 +111,4 @@ global/
 - **jsoup `Element.select(query)` 는 컨텍스트 요소 자신도 매칭에 포함**한다 (`querySelectorAll` 과 다름). "자식이 있나" 는 `el.children().select(...)`, "안에 있나" 는 `el.closest(...)` 로 검사한다.
 - 파서 로직은 실제 응답 축약본으로 `NoticeParserTest` 처럼 jsoup 단위 테스트를 붙인다.
 - `id` vs `No`: 목록/상세에서 쓰는 `id` 는 `read.php?id=` 파라미터(예: `175753`)다. 화면에 보이는 게시판 순번(`344`, `고정공지`)과 다르며, 상세·첨부 조회에는 `id` 가 필요하다.
+- **이미지로만 이뤄진 공지**: 본문(`td.readText.BoardContent`)이 `<img>` 뿐이라 `body` 가 빈 문자열이다. 상세 응답의 `images[]` 에 본문 이미지 절대 URL 을 담는다(에디터 업로드 이미지만; `/myboard/images` 등 레이아웃 아이콘 제외). 원본 이미지는 대부분 세션 없이 접근 가능한 정적 파일이라 URL 을 그대로 내려준다. BoardContent 셀이 있으면 비어 있어도 신뢰하고, colspan 폴백은 구 레이아웃 전용.
