@@ -9,11 +9,14 @@ import org.jsoup.nodes.Document;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLEncoder;
 import java.nio.charset.Charset;
 
 /**
@@ -108,6 +111,98 @@ public class HisnetClient {
      */
     public void verifySession(final HisnetSession session) {
         get(SESSION_PROBE_PATH, session);
+    }
+
+    /**
+     * 원본 서버로 폼 POST 를 보내고 EUC-KR 로 디코딩한 Document 를 반환하는 메서드.
+     * <p>
+     * 상태변경(시설 예약 신청·변경)용이다. 원본이 전 페이지 EUC-KR 이므로 폼 바디도 EUC-KR 로
+     * URL 인코딩한다. 원본은 성패를 상태코드로 알려주지 않고 200 + JS alert 스텁이나 302 를 주므로,
+     * 응답 본문을 그대로 넘겨 호출측이 문구로 판별하게 한다. 로그인 프레임으로의 리다이렉트만 세션 만료로 전환한다.
+     *
+     * @param path    원본 기준 경로 (쿼리스트링 없이)
+     * @param form    폼 필드 (EUC-KR 로 인코딩됨)
+     * @param session 원본 세션 쿠키
+     * @return 파싱된 응답 Document
+     */
+    public Document post(
+            final String path,
+            final MultiValueMap<String, String> form,
+            final HisnetSession session
+    ) {
+        if (session == null || session.phpSessionId() == null || session.phpSessionId().isBlank()) {
+            throw new CustomException(ExceptionCode.SESSION_EXPIRED);
+        }
+
+        final String body = encodeForm(form);
+
+        try {
+            final byte[] responseBody = hisnetRestClient.post()
+                    .uri(path)
+                    .header(HttpHeaders.COOKIE, session.toCookieHeader())
+                    .contentType(MediaType.valueOf(MediaType.APPLICATION_FORM_URLENCODED_VALUE + ";charset=EUC-KR"))
+                    .body(body)
+                    .exchange((clientRequest, clientResponse) -> {
+                        final HttpStatusCode status = clientResponse.getStatusCode();
+
+                        if (status.is3xxRedirection()) {
+                            final String location = clientResponse.getHeaders().getFirst(HttpHeaders.LOCATION);
+                            if (location != null && location.contains("login")) {
+                                throw new CustomException(ExceptionCode.SESSION_EXPIRED);
+                            }
+                            return new byte[0];
+                        }
+                        if (!status.is2xxSuccessful()) {
+                            log.warn("[HISNet POST 비정상 응답] path={}, status={}", path, status.value());
+                            throw new CustomException(ExceptionCode.HISNET_REQUEST_FAILED);
+                        }
+
+                        final byte[] bytes = clientResponse.bodyTo(byte[].class);
+                        return bytes != null ? bytes : new byte[0];
+                    });
+
+            return Jsoup.parse(new String(responseBody, HISNET_CHARSET), baseUrl);
+        } catch (final CustomException ex) {
+            throw ex;
+        } catch (final Exception ex) {
+            log.error("[HISNet POST 실패] path={}", path, ex);
+            throw new CustomException(ExceptionCode.HISNET_REQUEST_FAILED, ex);
+        }
+    }
+
+    /**
+     * 부수효과가 있는 GET(예약 취소 등)을 원본에 보내고 응답 Document 를 반환하는 메서드.
+     * <p>
+     * 일반 조회 {@link #get} 과 달리 응답이 작을 수 있어(취소 확인 스텁) 본문 크기 기반 세션 판별을
+     * 돌리지 않는다. 리다이렉트·비정상 상태코드 처리는 {@link #request} 를 그대로 재사용한다.
+     *
+     * @param path    원본 기준 경로 + 쿼리스트링
+     * @param session 원본 세션 쿠키
+     * @return 파싱된 응답 Document
+     */
+    public Document mutateViaGet(final String path, final HisnetSession session) {
+        final byte[] body = request(path, session);
+
+        return Jsoup.parse(new String(body, HISNET_CHARSET), baseUrl);
+    }
+
+    /**
+     * 폼 필드를 EUC-KR 로 URL 인코딩해 {@code a=1&b=2} 형태 문자열로 만드는 메서드.
+     */
+    private static String encodeForm(final MultiValueMap<String, String> form) {
+        final StringBuilder builder = new StringBuilder();
+        form.forEach((key, values) -> {
+            for (final String value : values) {
+                if (!builder.isEmpty()) {
+                    builder.append('&');
+                }
+                builder.append(URLEncoder.encode(key, HISNET_CHARSET))
+                        .append('=')
+                        .append(URLEncoder.encode(value != null ? value : "", HISNET_CHARSET));
+            }
+        });
+
+        return builder.toString();
     }
 
     /**

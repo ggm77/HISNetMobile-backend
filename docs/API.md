@@ -67,6 +67,11 @@
 | `GET` | `/notices/department` | ✔ | 학부공지 목록 (`dept` 필요) |
 | `GET` | `/notices/department/{id}` | ✔ | 학부공지 상세 (`dept` 필요) |
 | `GET` | `/notices/department/{id}/attachments/{index}` | ✔ | 학부공지 첨부 다운로드 (`dept` 필요) |
+| `GET` | `/facilities` | ✔ | 시설 카탈로그 (운동시설/회의실/편의시설) |
+| `GET` | `/facilities/{facilityId}/availability` | ✔ | 시설 예약 현황 (기준일부터 10일, 30분 슬롯) |
+| `GET` | `/facilities/reservations` | ✔ | 내 예약 내역 (`status` 선택) |
+| `POST` | `/facilities/{facilityId}/reservations` | ✔ | 시설 예약 신청 (원본에 실제 생성) |
+| `DELETE` | `/facilities/reservations/{bookingCode}` | ✔ | 시설 예약 취소 (원본에서 실제 취소) |
 
 ---
 
@@ -557,6 +562,95 @@ curl -OJ -b cookies.txt \
 
 ---
 
+### 시설/공간 예약
+
+원본 시설예약신청(`PSTU420*.php`)을 중계한다. 시간 단위는 **항상 30분**이다 — 원본이 15분 격자로 주는 현황을
+`:00`/`:30` 경계로 병합해 내려주고, 신청도 30분 배수·정렬만 받는다.
+
+> 신청(`POST`)·취소(`DELETE`)는 **원본(HISNet)에 실제 예약을 만들고 취소한다.** 원본은 성패를 상태코드로
+> 주지 않아, 신청 후 진행중 내역을 재조회해 생성 여부를 확인한다(실패 문구 매핑은 실제 샘플로 보정 예정).
+
+지원 분류는 `sports`(운동시설)·`meeting`(회의실)·`convenience`(편의시설) 뿐이다(원본 "전용강의실" 제외).
+`facilityId` 는 카탈로그의 `id` (원본 시설 코드).
+
+#### `GET /api/v1/facilities`
+
+예약 가능한 시설 목록. 원본 요청 없이 서버 상수로 응답한다(학기마다 원본과 대조해 갱신).
+
+**Response** — `200 OK`, [`FacilityCatalog`](#facilitycatalog)
+
+#### `GET /api/v1/facilities/{facilityId}/availability`
+
+한 시설의 예약 현황.
+
+| 이름 | 위치 | 타입 | 필수 | 설명 |
+|---|---|---|---|---|
+| `facilityId` | path | int | ✔ | 시설 코드 |
+| `date` | query | string(date) | | 조회 기준일 `yyyy-MM-dd`. 생략 시 오늘. 이 날짜부터 10일치를 반환 |
+
+**Response**
+
+| 상태 | 바디 | 설명 |
+|---|---|---|
+| `200 OK` | [`FacilityAvailability`](#facilityavailability) | 30분 슬롯 현황 + 쿼터 |
+| `400 Bad Request` | 에러 | 알 수 없는 `facilityId` (`INVALID_FACILITY`) / `date` 형식 오류(프레임워크 기본 응답) |
+| `401 Unauthorized` | | 미인증 / 세션 만료 |
+| `500` / `502` | 에러 | 파싱 실패 (`FACILITY_PARSING_FAILED`) / 원본 통신 실패 |
+
+#### `GET /api/v1/facilities/reservations`
+
+현재 로그인 사용자의 예약 내역.
+
+| 이름 | 위치 | 타입 | 필수 | 설명 |
+|---|---|---|---|---|
+| `status` | query | string | | `active`(기본) / `completed` / `cancelled` / `noshow` |
+
+**Response**
+
+| 상태 | 바디 | 설명 |
+|---|---|---|
+| `200 OK` | [`ReservationList`](#reservationlist) | |
+| `400 Bad Request` | 에러 | 알 수 없는 `status` (`INVALID_RESERVATION_STATUS`) |
+
+#### `POST /api/v1/facilities/{facilityId}/reservations`
+
+시설 예약 신청. 시작·종료 시각은 30분 단위. 원본 현황으로 선검증한 뒤 신청한다.
+
+**Request** — `application/json`
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `date` | string(date) | ✔ | 이용일 `yyyy-MM-dd` |
+| `startTime` | string | ✔ | 시작 `HH:mm` (분은 `00`/`30`) |
+| `endTime` | string | ✔ | 종료 `HH:mm` (분은 `00`/`30`, `startTime` 보다 뒤) |
+
+**Response**
+
+| 상태 | 바디 | 설명 |
+|---|---|---|
+| `200 OK` | [`Reservation`](#reservation) | 생성된 예약 |
+| `400 Bad Request` | 에러 | 30분 단위 위반 (`INVALID_RESERVATION_TIME`) / `date` 형식 오류 (`INVALID_REQUEST`) |
+| `409 Conflict` | 에러 | 선택 구간에 예약 불가 슬롯 포함 (`RESERVATION_SLOT_UNAVAILABLE`) |
+| `502 Bad Gateway` | 에러 | 원본 신청 후 생성 확인 실패 (`HISNET_REQUEST_FAILED`) |
+
+#### `DELETE /api/v1/facilities/reservations/{bookingCode}`
+
+시설 예약 취소. 이용시작 1시간 전 이후 취소는 원본에서 벌점이 부여된다.
+
+| 이름 | 위치 | 타입 | 필수 | 설명 |
+|---|---|---|---|---|
+| `bookingCode` | path | long | ✔ | 예약 코드 (원본 `bcode`, 내역 응답의 `bookingCode`) |
+
+**Response**
+
+| 상태 | 바디 | 설명 |
+|---|---|---|
+| `204 No Content` | | 취소 완료 |
+| `401 Unauthorized` | | 미인증 / 세션 만료 |
+| `502 Bad Gateway` | 에러 | 원본 통신 실패 |
+
+---
+
 ## 스키마
 
 ### AuthMe
@@ -778,6 +872,92 @@ curl -OJ -b cookies.txt \
 | `index` | int | 다운로드 API 의 `{index}` (원본 `fidx`, 1부터) |
 | `name` | string | 파일명 |
 
+### FacilityCatalog
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `categories` | `CategoryGroup[]` | 분류별 시설 묶음 (운동시설·회의실·편의시설 순) |
+
+**CategoryGroup**
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `category` | string | 분류 slug (`sports`/`meeting`/`convenience`) |
+| `categoryName` | string | 분류 표시명 |
+| `facilities` | `Facility[]` | 해당 분류 시설 (원본 화면 순서) |
+
+**Facility**
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | int | 시설 코드 (`availability`·신청 요청의 `facilityId`) |
+| `name` | string | 시설명 |
+
+### FacilityAvailability
+
+| 필드 | 타입 | Null | 설명 |
+|---|---|---|---|
+| `facilityId` | int | | 시설 코드 |
+| `facilityName` | string | | 시설명 (원본 페이지 헤더 기준) |
+| `slotMinutes` | int | | 슬롯 단위(분) — 항상 `30` |
+| `operatingStart` | string | ✔ | 운영 시작 `HH:mm` (그리드에서 관측된 최소 시작, 슬롯 없으면 `null`) |
+| `operatingEnd` | string | ✔ | 운영 종료 `HH:mm` (자정까지면 `"24:00"`) |
+| `rangeFrom` | string(date) | | 조회 시작일 |
+| `rangeTo` | string(date) | | 조회 종료일 (`rangeFrom` + 9일) |
+| `quota` | `Quota` | ✔ | 예약 가능시간 쿼터 (문구 파싱 실패 시 `null`) |
+| `days` | `DayAvailability[]` | | 날짜별 슬롯 (날짜 오름차순, 최대 10일) |
+
+**Quota**
+
+| 필드 | 타입 | Null | 설명 |
+|---|---|---|---|
+| `totalRemainingMinutes` | int | ✔ | 총 잔여(분) |
+| `totalLimitMinutes` | int | ✔ | 총 한도(분) |
+| `dailyRemainingMinutes` | int | ✔ | 일일 잔여(분) |
+| `dailyLimitMinutes` | int | ✔ | 일일 한도(분) |
+| `resetDate` | string(date) | ✔ | 총 쿼터 초기화 예정일 (주간 롤링) |
+
+**DayAvailability**
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `date` | string(date) | 날짜 |
+| `weekday` | string | 요일 (`MON`~`SUN`) |
+| `slots` | `Slot[]` | 30분 슬롯 (운영시간 내 오름차순) |
+
+**Slot**
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `start` | string | 시작 `HH:mm` |
+| `end` | string | 종료 `HH:mm` |
+| `status` | string | `AVAILABLE` / `RESERVED_MINE` / `RESERVED_OTHER` / `UNAVAILABLE` |
+
+> 병합 규칙: 30분을 이루는 두 15분 칸 중 하나라도 내 예약이면 `RESERVED_MINE`, 그다음 타인 예약이면
+> `RESERVED_OTHER`, 둘 다 가능일 때만 `AVAILABLE`, 나머지는 `UNAVAILABLE`.
+
+### ReservationList
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `status` | string | 조회한 내역 구분 (`active`/`completed`/`cancelled`/`noshow`) |
+| `reservations` | `Reservation[]` | 예약 내역 (최근 건부터) |
+
+> `active` 탭만 원본에 예약취소가능기간·바로가기(참석자등록/변경/취소) 칸이 있어 `bookingCode` 를 얻는다.
+> `completed`/`cancelled`/`noshow` 는 `No·제목·장소·일시` 4칸뿐이라 `bookingCode` 와 `cancelableUntil` 이 `null`.
+
+### Reservation
+
+| 필드 | 타입 | Null | 설명 |
+|---|---|---|---|
+| `bookingCode` | long | ✔ | 예약 코드 (원본 `bcode` — 취소·변경 키). `active` 외 탭은 `null` |
+| `title` | string | ✔ | 예약 제목 (보통 `null`) |
+| `facilityName` | string | ✔ | 장소(시설명) 원문 |
+| `date` | string(date) | ✔ | 이용일 |
+| `startTime` | string | ✔ | 시작 `HH:mm` |
+| `endTime` | string | ✔ | 종료 `HH:mm` (자정이면 `"24:00"`) |
+| `cancelableUntil` | string | ✔ | 예약취소 가능 마감 `yyyy-MM-dd HH:mm` (`active` 탭만) |
+
 ---
 
 ## 에러 코드
@@ -789,6 +969,11 @@ curl -OJ -b cookies.txt \
 | `INVALID_NOTICE_BOARD` | 400 | 올바르지 않은 공지 게시판입니다. |
 | `INVALID_DEPARTMENT` | 400 | 올바르지 않은 학부 게시판 코드입니다. |
 | `INVALID_ATTACHMENT_INDEX` | 400 | 올바르지 않은 첨부파일 번호입니다. |
+| `INVALID_FACILITY` | 400 | 올바르지 않은 시설입니다. |
+| `INVALID_FACILITY_CATEGORY` | 400 | 올바르지 않은 시설 분류입니다. |
+| `INVALID_RESERVATION_STATUS` | 400 | 올바르지 않은 예약 내역 구분입니다. |
+| `INVALID_RESERVATION_TIME` | 400 | 예약 시간은 30분 단위여야 하며, 시작이 종료보다 빨라야 합니다. |
+| `RESERVATION_SLOT_UNAVAILABLE` | 409 | 선택한 시간대에 예약할 수 없는 구간이 포함되어 있습니다. |
 | `LOGIN_FAILED` | 401 | 로그인에 실패했습니다. 아이디와 비밀번호를 확인해주세요. |
 | `SESSION_EXPIRED` | 401 | 히즈넷 세션이 만료되었습니다. 다시 로그인해주세요. |
 | `NOTICE_NOT_FOUND` | 404 | 공지를 찾을 수 없습니다. |
@@ -800,6 +985,7 @@ curl -OJ -b cookies.txt \
 | `TIMETABLE_PARSING_FAILED` | 500 | 시간표 페이지 파싱에 실패했습니다. |
 | `GRADE_PARSING_FAILED` | 500 | 성적 페이지 파싱에 실패했습니다. |
 | `GRADUATION_PARSING_FAILED` | 500 | 졸업심사 결과 페이지 파싱에 실패했습니다. |
+| `FACILITY_PARSING_FAILED` | 500 | 시설 예약 페이지 파싱에 실패했습니다. |
 | `INTERNAL_SERVER_ERROR` | 500 | 서버에서 에러가 발생했습니다. |
 
 ---

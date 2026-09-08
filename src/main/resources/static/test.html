@@ -66,7 +66,7 @@
 <body>
 <div class="wrap">
   <h1>HisnetMobile API 테스트</h1>
-  <div class="sub">세션 로그인 · 학적 기본정보 · 공지(일반/학부) 목록·상세 · 식단표 · 시간표 · 성적 · 졸업심사 확인용</div>
+  <div class="sub">세션 로그인 · 학적 기본정보 · 공지(일반/학부) 목록·상세 · 식단표 · 시간표 · 성적 · 졸업심사 · 시설 예약 확인용</div>
 
   <div class="card">
     <h2>1. 로그인</h2>
@@ -181,6 +181,92 @@
     <div id="graduationStatus" class="status"></div>
     <div id="graduationBody" class="scroll"></div>
     <details id="graduationJsonWrap" hidden><summary>응답 JSON</summary><pre id="graduationJson"></pre></details>
+  </div>
+
+  <div class="card">
+    <h2>8. 시설 예약</h2>
+
+    <label for="facilityId">시설 <span class="cfg">(카탈로그 조회 후 채워짐)</span></label>
+    <div class="inline">
+      <div><select id="facilityId"><option value="">— 카탈로그를 먼저 조회하세요 —</option></select></div>
+      <div class="narrow" style="flex:0 0 auto">
+        <button id="btnCatalog" class="primary">GET /facilities</button>
+      </div>
+    </div>
+    <div id="catalogStatus" class="status"></div>
+    <details id="catalogJsonWrap" hidden><summary>카탈로그 응답 JSON</summary><pre id="catalogJson"></pre></details>
+
+    <div style="border-top:1px solid var(--border); margin-top:14px; padding-top:12px">
+      <div class="inline">
+        <div class="narrow" style="flex:0 0 150px">
+          <label for="availDate">기준일 (생략=오늘)</label>
+          <input id="availDate" type="text" placeholder="yyyy-MM-dd">
+        </div>
+        <div class="narrow" style="flex:0 0 auto">
+          <button id="btnAvailability" class="primary">GET /availability</button>
+        </div>
+      </div>
+      <div id="availStatus" class="status"></div>
+      <div id="availMeta" class="cfg"></div>
+      <div class="scroll"><div id="availGrid"></div></div>
+      <div id="availLegend" class="cfg" style="margin-top:6px"></div>
+      <details id="availJsonWrap" hidden><summary>현황 응답 JSON</summary><pre id="availJson"></pre></details>
+    </div>
+
+    <div style="border-top:1px solid var(--border); margin-top:14px; padding-top:12px">
+      <div class="inline">
+        <div class="narrow" style="flex:0 0 160px">
+          <label for="resStatus">내 예약 내역</label>
+          <select id="resStatus">
+            <option value="active">active (진행중)</option>
+            <option value="completed">completed (사용완료)</option>
+            <option value="cancelled">cancelled (취소)</option>
+            <option value="noshow">noshow (미사용취소)</option>
+          </select>
+        </div>
+        <div class="narrow" style="flex:0 0 auto">
+          <button id="btnReservations" class="primary">GET /reservations</button>
+        </div>
+      </div>
+      <div id="resListStatus" class="status"></div>
+      <div class="scroll"><div id="resListTable"></div></div>
+      <details id="resListJsonWrap" hidden><summary>내역 응답 JSON</summary><pre id="resListJson"></pre></details>
+    </div>
+
+    <div style="border-top:1px solid var(--border); margin-top:14px; padding-top:12px">
+      <div class="cfg" style="margin-bottom:6px"><b>주의:</b> 신청·취소는 원본(HISNet)에 <b>실제 반영</b>된다. 테스트 후 직접 취소할 것.</div>
+      <div class="inline">
+        <div class="narrow" style="flex:0 0 150px">
+          <label for="bookDate">이용일</label>
+          <input id="bookDate" type="text" placeholder="yyyy-MM-dd">
+        </div>
+        <div class="narrow" style="flex:0 0 110px">
+          <label for="bookStart">시작</label>
+          <select id="bookStart"></select>
+        </div>
+        <div class="narrow" style="flex:0 0 110px">
+          <label for="bookEnd">종료</label>
+          <select id="bookEnd"></select>
+        </div>
+        <div class="narrow" style="flex:0 0 auto">
+          <button id="btnCreateReservation">POST /reservations</button>
+        </div>
+      </div>
+      <div id="createStatus" class="status"></div>
+      <details id="createJsonWrap" hidden><summary>신청 응답 JSON</summary><pre id="createJson"></pre></details>
+
+      <div class="inline" style="margin-top:12px">
+        <div class="narrow" style="flex:0 0 200px">
+          <label for="cancelCode">예약 코드 (bookingCode)</label>
+          <input id="cancelCode" type="number" placeholder="예: 755844">
+        </div>
+        <div class="narrow" style="flex:0 0 auto">
+          <button id="btnCancelReservation">DELETE /reservations/{code}</button>
+        </div>
+      </div>
+      <div id="cancelStatus" class="status"></div>
+      <details id="cancelJsonWrap" hidden><summary>취소 응답 JSON</summary><pre id="cancelJson"></pre></details>
+    </div>
   </div>
 </div>
 
@@ -676,6 +762,230 @@
       renderGraduation(r.body || {});
       setStatus($("graduationStatus"), "조회 성공 (200)." + (r.body.available ? "" : " (available=false)"), "ok");
     } catch (e) { setStatus($("graduationStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
+  });
+
+  // ---------- 8. 시설 예약 ----------
+  const SLOT_STYLE = {
+    AVAILABLE:      { bg: "#ffffff", fg: "#1a7f37", mark: "○", label: "예약가능" },
+    RESERVED_MINE:  { bg: "#c4e3aa", fg: "#1f2328", mark: "내", label: "내 예약" },
+    RESERVED_OTHER: { bg: "#feb39a", fg: "#1f2328", mark: "타", label: "타인 예약" },
+    UNAVAILABLE:    { bg: "#d9d9d9", fg: "#656d76", mark: "×", label: "예약불가" }
+  };
+
+  function todayStr() {
+    const d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+
+  // 시작/종료 시각 select 채우기 (30분 단위)
+  (function fillTimeSelects() {
+    const opts = [];
+    for (let h = 0; h < 24; h++) {
+      for (let m = 0; m < 60; m += 30) {
+        const t = String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+        opts.push("<option value='" + t + "'>" + t + "</option>");
+      }
+    }
+    $("bookStart").innerHTML = opts.join("");
+    $("bookEnd").innerHTML = opts.join("");
+    $("bookStart").value = "18:00";
+    $("bookEnd").value = "20:00";
+  })();
+  $("availDate").value = "";
+  $("bookDate").value = todayStr();
+
+  function selectedFacility() {
+    const id = $("facilityId").value;
+    if (!id) { return null; }
+    return parseInt(id, 10);
+  }
+
+  // ----- 8-1. 카탈로그 -----
+  $("btnCatalog").addEventListener("click", async function () {
+    busy(true);
+    setStatus($("catalogStatus"), "조회 중...");
+    $("catalogJsonWrap").hidden = true;
+    try {
+      const r = await call("/api/v1/facilities", { method: "GET" });
+      $("catalogJson").textContent = JSON.stringify(r.body, null, 2);
+      $("catalogJsonWrap").hidden = false;
+      if (!r.ok) {
+        const msg = r.body && r.body.message ? r.body.message : JSON.stringify(r.body);
+        setStatus($("catalogStatus"), "실패 (" + r.status + ") — " + msg, "err");
+        return;
+      }
+      const groups = (r.body && r.body.categories) || [];
+      let count = 0;
+      $("facilityId").innerHTML = groups.map(function (g) {
+        return "<optgroup label='" + esc(g.categoryName) + "'>" + (g.facilities || []).map(function (f) {
+          count++;
+          return "<option value='" + f.id + "'>" + esc(f.name) + " (#" + f.id + ")</option>";
+        }).join("") + "</optgroup>";
+      }).join("");
+      setStatus($("catalogStatus"), "조회 성공 (200). 시설 " + count + "개.", "ok");
+    } catch (e) { setStatus($("catalogStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
+  });
+
+  // ----- 8-2. 예약 현황 -----
+  function renderAvailability(data) {
+    const meta = [];
+    meta.push("시설 #" + data.facilityId + " " + (data.facilityName || ""));
+    meta.push("슬롯 " + data.slotMinutes + "분");
+    if (data.operatingStart) meta.push("운영 " + data.operatingStart + "~" + data.operatingEnd);
+    meta.push("범위 " + data.rangeFrom + " ~ " + data.rangeTo);
+    if (data.quota) {
+      const q = data.quota;
+      const fmt = function (v) { return (v === null || v === undefined) ? "?" : (v / 60) + "h"; };
+      meta.push("쿼터 총 " + fmt(q.totalRemainingMinutes) + "/" + fmt(q.totalLimitMinutes)
+        + " · 일일 " + fmt(q.dailyRemainingMinutes) + "/" + fmt(q.dailyLimitMinutes)
+        + (q.resetDate ? " · 초기화 " + q.resetDate : ""));
+    }
+    $("availMeta").textContent = meta.join("  |  ");
+
+    $("availLegend").innerHTML = Object.keys(SLOT_STYLE).map(function (k) {
+      const s = SLOT_STYLE[k];
+      return "<span style='display:inline-block;margin-right:10px'><span style='display:inline-block;width:12px;height:12px;"
+        + "vertical-align:middle;border:1px solid #d9dce1;background:" + s.bg + "'></span> " + s.label + "</span>";
+    }).join("");
+
+    const days = data.days || [];
+    const withSlots = days.filter(function (d) { return (d.slots || []).length; });
+    if (!withSlots.length) {
+      $("availGrid").innerHTML = "<div class='empty'>예약 가능/불가 슬롯이 없습니다 (전 기간 마감이거나 구조 변경).</div>";
+      return;
+    }
+    const slotKeys = withSlots[0].slots.map(function (s) { return s.start + "~" + s.end; });
+    const dayMaps = days.map(function (d) {
+      const m = {};
+      (d.slots || []).forEach(function (s) { m[s.start + "~" + s.end] = s.status; });
+      return m;
+    });
+
+    let head = "<tr><th>시간</th>" + days.map(function (d) {
+      return "<th style='text-align:center'>" + d.date.slice(5) + "<br><span class='cfg'>" + d.weekday + "</span></th>";
+    }).join("") + "</tr>";
+
+    let rows = slotKeys.map(function (key, i) {
+      const cells = days.map(function (d, di) {
+        const st = dayMaps[di][key];
+        const s = SLOT_STYLE[st] || SLOT_STYLE.UNAVAILABLE;
+        return "<td style='text-align:center;background:" + s.bg + ";color:" + s.fg + "' title='" + (st || "") + "'>" + s.mark + "</td>";
+      }).join("");
+      return "<tr><td class='center'>" + esc(key.replace("~", " ~ ")) + "</td>" + cells + "</tr>";
+    }).join("");
+
+    $("availGrid").innerHTML = "<table class='list'>" + head + rows + "</table>";
+  }
+
+  $("btnAvailability").addEventListener("click", async function () {
+    const fid = selectedFacility();
+    if (fid === null) { setStatus($("availStatus"), "시설을 먼저 선택하세요 (카탈로그 조회).", "err"); return; }
+    busy(true);
+    setStatus($("availStatus"), "조회 중...");
+    $("availGrid").innerHTML = "";
+    $("availMeta").textContent = "";
+    $("availLegend").innerHTML = "";
+    $("availJsonWrap").hidden = true;
+    try {
+      const date = $("availDate").value.trim();
+      const path = "/api/v1/facilities/" + fid + "/availability" + (date ? "?date=" + encodeURIComponent(date) : "");
+      const r = await call(path, { method: "GET" });
+      $("availJson").textContent = JSON.stringify(r.body, null, 2);
+      $("availJsonWrap").hidden = false;
+      if (!r.ok) {
+        const msg = r.body && r.body.message ? r.body.message : JSON.stringify(r.body);
+        setStatus($("availStatus"), "실패 (" + r.status + ") — " + msg, "err");
+        return;
+      }
+      renderAvailability(r.body || {});
+      setStatus($("availStatus"), "조회 성공 (200). " + ((r.body.days || []).length) + "일치.", "ok");
+    } catch (e) { setStatus($("availStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
+  });
+
+  // ----- 8-3. 내 예약 내역 -----
+  $("btnReservations").addEventListener("click", async function () {
+    busy(true);
+    setStatus($("resListStatus"), "조회 중...");
+    $("resListTable").innerHTML = "";
+    $("resListJsonWrap").hidden = true;
+    try {
+      const status = $("resStatus").value;
+      const r = await call("/api/v1/facilities/reservations?status=" + status, { method: "GET" });
+      $("resListJson").textContent = JSON.stringify(r.body, null, 2);
+      $("resListJsonWrap").hidden = false;
+      if (!r.ok) {
+        const msg = r.body && r.body.message ? r.body.message : JSON.stringify(r.body);
+        setStatus($("resListStatus"), "실패 (" + r.status + ") — " + msg, "err");
+        return;
+      }
+      const list = (r.body && r.body.reservations) || [];
+      if (!list.length) {
+        $("resListTable").innerHTML = "<div class='empty'>내역 없음</div>";
+      } else {
+        $("resListTable").innerHTML = "<table class='list'><tr><th>코드</th><th>장소</th><th>제목</th>"
+          + "<th>일시</th><th>취소가능 마감</th></tr>"
+          + list.map(function (v) {
+            return "<tr><td class='num'>" + cell(v.bookingCode) + "</td><td>" + cell(v.facilityName) + "</td>"
+              + "<td>" + cell(v.title) + "</td>"
+              + "<td class='center'>" + cell(v.date) + " " + cell(v.startTime) + "~" + cell(v.endTime) + "</td>"
+              + "<td class='center'>" + cell(v.cancelableUntil) + "</td></tr>";
+          }).join("") + "</table>";
+      }
+      setStatus($("resListStatus"), "조회 성공 (200). " + list.length + "건.", "ok");
+      var firstCode = list.find(function (v) { return v.bookingCode != null; });
+      if (firstCode && !$("cancelCode").value) { $("cancelCode").value = firstCode.bookingCode; }
+    } catch (e) { setStatus($("resListStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
+  });
+
+  // ----- 8-4. 예약 신청 (원본에 실제 생성됨) -----
+  $("btnCreateReservation").addEventListener("click", async function () {
+    const fid = selectedFacility();
+    if (fid === null) { setStatus($("createStatus"), "시설을 먼저 선택하세요.", "err"); return; }
+    busy(true);
+    setStatus($("createStatus"), "신청 중...");
+    $("createJsonWrap").hidden = true;
+    try {
+      const payload = { date: $("bookDate").value.trim(), startTime: $("bookStart").value, endTime: $("bookEnd").value };
+      const r = await call("/api/v1/facilities/" + fid + "/reservations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      $("createJson").textContent = JSON.stringify(r.body, null, 2);
+      $("createJsonWrap").hidden = false;
+      const msg = r.body && r.body.message ? r.body.message : JSON.stringify(r.body);
+      if (r.ok) {
+        setStatus($("createStatus"), "신청 성공 (" + r.status + ") — bookingCode " + (r.body && r.body.bookingCode)
+          + " (원본에 실제 생성됨)", "ok");
+      } else {
+        setStatus($("createStatus"), "응답 (" + r.status + ") — " + msg, "err");
+      }
+    } catch (e) { setStatus($("createStatus"), "요청 실패: " + e.message, "err"); }
+    finally { busy(false); }
+  });
+
+  // ----- 8-5. 예약 취소 (원본에서 실제 취소됨) -----
+  $("btnCancelReservation").addEventListener("click", async function () {
+    const code = $("cancelCode").value.trim();
+    if (!code) { setStatus($("cancelStatus"), "예약 코드를 입력하세요.", "err"); return; }
+    busy(true);
+    setStatus($("cancelStatus"), "취소 중...");
+    $("cancelJsonWrap").hidden = true;
+    try {
+      const r = await call("/api/v1/facilities/reservations/" + encodeURIComponent(code), { method: "DELETE" });
+      $("cancelJson").textContent = r.body === null ? "(빈 본문)" : JSON.stringify(r.body, null, 2);
+      $("cancelJsonWrap").hidden = false;
+      const msg = r.body && r.body.message ? r.body.message : JSON.stringify(r.body);
+      if (r.status === 204) {
+        setStatus($("cancelStatus"), "취소 완료 (204). 원본에서 실제 취소됨.", "ok");
+      } else {
+        setStatus($("cancelStatus"), "응답 (" + r.status + ") — " + msg, "err");
+      }
+    } catch (e) { setStatus($("cancelStatus"), "요청 실패: " + e.message, "err"); }
     finally { busy(false); }
   });
 })();
