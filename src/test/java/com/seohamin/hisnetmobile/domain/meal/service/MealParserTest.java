@@ -156,7 +156,7 @@ class MealParserTest {
 
         final MealResponseDto result = parser.parse(document);
 
-        // 말스키친(tr_box11_2)은 메뉴가 비어 있어 제외된다
+        // 맘스키친(tr_box11_2)은 메뉴가 비어 있어 제외된다
         assertThat(result.cafeterias())
                 .extracting(CafeteriaMealDto::id, CafeteriaMealDto::name)
                 .containsExactly(

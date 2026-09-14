@@ -398,7 +398,7 @@ curl -i -c cookies.txt -X POST https://<host>/api/v1/auth/login \
 ```
 
 - `date` 는 원본 위젯 인쇄 아이콘 URL 에 박힌 당일 날짜(못 찾으면 서버 KST 기준 오늘).
-- `id` 는 `STUDENT` / `MARS_KITCHEN` / `HANDONG_LOUNGE` / `GRACE_TABLE`. **메뉴가 하나도 없는 식당은 응답에서 제외**한다(예: 방학 중 말스키친).
+- `id` 는 `STUDENT` / `MOMS_KITCHEN` / `HANDONG_LOUNGE` / `GRACE_TABLE`. **메뉴가 하나도 없는 식당은 응답에서 제외**한다(예: 방학 중 맘스키친).
 - 학생식당만 코너가 여럿(든든한동 / H:plate / Asian Market / Han's Deli / 따스한동)이고, 나머지 식당은 식당명과 같은 코너 하나만 온다.
 - `slot` 은 보통 `아침` / `점심` / `저녁`. 원본 헤더가 다르면 그 표기를 그대로 쓴다(한동라운지). 학생식당의 점심 전용 코너는 `점심`.
 - `items` 는 원본 표기 순서. 맨 앞의 `-원산지:메뉴게시판 참조-` 같은 안내 문구도 원본에 있으면 포함.
@@ -811,7 +811,7 @@ curl -OJ -b cookies.txt \
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `id` | string | `STUDENT` / `MARS_KITCHEN` / `HANDONG_LOUNGE` / `GRACE_TABLE` |
+| `id` | string | `STUDENT` / `MOMS_KITCHEN` / `HANDONG_LOUNGE` / `GRACE_TABLE` |
 | `name` | string | 식당 표시명 |
 | `corners` | `MealCorner[]` | 코너별 메뉴 |
 

@@ -10,7 +10,7 @@ package com.seohamin.hisnetmobile.domain.meal.constant;
 public enum Cafeteria {
 
     STUDENT(1, "학생식당"),
-    MARS_KITCHEN(2, "말스키친"),
+    MOMS_KITCHEN(2, "맘스키친"),
     HANDONG_LOUNGE(3, "한동라운지"),
     GRACE_TABLE(4, "더그레이스테이블");
 
